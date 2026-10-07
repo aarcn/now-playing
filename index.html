@@ -6,6 +6,7 @@
     <title>Now Playing</title>
     <style>
       :root {
+        color-scheme: dark;
         --bg: #1c1c1c;
         --card: #262626;
         --line: #353535;
@@ -56,19 +57,43 @@
       table { width: 100%; border-collapse: collapse; font-size: 14px; }
       td { padding: 6px 0; border-top: 1px solid var(--line); }
       tr:first-child td { border-top: 0; }
-      td:first-child { color: var(--muted); width: 45%; }
+      td { vertical-align: top; }
+      td:first-child { color: var(--muted); width: 38%; padding-right: 10px; }
+      .hint { color: var(--muted); font-size: 13px; margin: 12px 0 0; }
+      section .hint:first-child { margin-top: 0; }
+      .notice { border-color: var(--accent); }
+      .notice p { margin: 0; }
+      textarea {
+        width: 100%; margin-top: 8px; padding: 10px 12px; border-radius: 10px; resize: vertical;
+        border: 1px solid var(--line); background: var(--bg); color: var(--text);
+        font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      button:disabled { opacity: 0.4; cursor: default; }
+      .setting { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; font-size: 14px; color: var(--muted); }
+      select {
+        -webkit-appearance: none; appearance: none;
+        padding: 8px 30px 8px 12px; border-radius: 10px; border: 1px solid var(--line);
+        background: var(--bg) no-repeat right 10px center / 10px
+          url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%239a9a9a' stroke-width='1.5'/%3E%3C/svg%3E");
+        color: var(--text); font: 14px system-ui, sans-serif;
+      }
     </style>
   </head>
   <body>
     <main>
       <h1>Now Playing</h1>
-      <p id="status">Checking…</p>
+      <p id="status">Checking...</p>
       <p id="error"></p>
+
+      <section id="reconnect" class="notice" hidden>
+        <p>This version can do more (likes, artists, podcasts). Reconnect Spotify to allow it.</p>
+        <div class="row"><button id="reconnect-btn">Reconnect</button></div>
+      </section>
 
       <section id="setup" hidden>
         <h2>Connect Spotify</h2>
         <ol>
-          <li>Create an app at <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">developer.spotify.com/dashboard</a> and tick <b>Web API</b>. Spotify requires a Premium account for this.</li>
+          <li>Create an app at <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">developer.spotify.com/dashboard</a> and tick <b>Web API</b>. Spotify requires Premium for this.</li>
           <li>Add this as a Redirect URI:
             <code id="redirect"></code>
             <div class="row"><button id="copy" class="secondary">Copy</button></div>
@@ -80,10 +105,23 @@
             </div>
           </li>
         </ol>
+        <p class="hint">Usually sign in with Google, Apple or Facebook? Those don't work inside apps. On Spotify's sign-in page choose to log in with an email code instead, or use a sign-in key below.</p>
+      </section>
+
+      <section id="key-import" hidden>
+        <h2>Sign-in key</h2>
+        <p class="hint">Open this page in your phone's browser, connect there, tap "Copy sign-in key", then paste it here.</p>
+        <textarea id="key-input" rows="3" placeholder="np1...." autocomplete="off" autocapitalize="off" spellcheck="false"></textarea>
+        <div class="row"><button id="use-key" class="secondary">Use key</button></div>
       </section>
 
       <section id="connected" hidden>
         <h2>Account</h2>
+        <div id="key-export">
+          <p class="hint">Move this sign-in to the Even app: copy the key, then paste it under "Sign-in key" in the app.</p>
+          <div class="row"><button id="copy-key">Copy sign-in key</button></div>
+          <code id="key-text" hidden></code>
+        </div>
         <div class="row"><button id="logout" class="secondary">Disconnect Spotify</button></div>
       </section>
 
@@ -91,11 +129,16 @@
         <h2>On the glasses</h2>
         <table>
           <tr><td>Tap</td><td>Play / pause</td></tr>
-          <tr><td>Swipe down</td><td>Next track</td></tr>
-          <tr><td>Swipe up</td><td>Previous track</td></tr>
-          <tr><td>Double-tap</td><td>Library / back</td></tr>
-          <tr><td>Library → Exit</td><td>Close the app</td></tr>
+          <tr><td id="ctl-next">Swipe down</td><td>Next song</td></tr>
+          <tr><td id="ctl-prev">Swipe up</td><td>Restart, or previous if near the start</td></tr>
+          <tr><td>Double-tap</td><td>Menu: library, queue, like, shuffle, repeat, volume, seek, devices. Double-tap again to go back.</td></tr>
         </table>
+        <label class="setting">Next song is
+          <select id="swipe">
+            <option value="down">Swipe down</option>
+            <option value="up">Swipe up</option>
+          </select>
+        </label>
       </section>
     </main>
     <script type="module" src="/src/main.ts"></script>

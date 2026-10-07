@@ -5,8 +5,15 @@ import { waitForEvenAppBridge, type EvenAppBridge } from '@evenrealities/even_hu
 let bridge: EvenAppBridge | null = null
 let tail: Promise<unknown> = Promise.resolve()
 
+const BRIDGE_TIMEOUT_MS = 6000
+
 export function serial<T>(fn: (b: EvenAppBridge) => Promise<T>): Promise<T> {
-  const run = tail.then(() => fn(bridge!))
+  const run = tail.then(() => Promise.race([
+    fn(bridge!),
+    // If the glasses drop mid-call the promise may never settle; don't let
+    // one stuck call block every later render and storage call.
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Glasses not responding')), BRIDGE_TIMEOUT_MS)),
+  ]))
   tail = run.catch(() => {})
   return run
 }

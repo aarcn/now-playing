@@ -1,14 +1,18 @@
 {
   "name": "nowplaying",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "pack": "npm run build && evenhub pack app.json dist",
-    "simulate": "evenhub-simulator http://localhost:5173"
+    "simulate": "evenhub-simulator http://localhost:5173",
+    "test": "tsx dev/text.test.ts",
+    "mock": "vite --host 127.0.0.1",
+    "simulate:mock": "evenhub-simulator http://127.0.0.1:5173/dev/mock.html --automation-port 9898",
+    "test:e2e": "node dev/sim-test.mjs"
   },
   "dependencies": {
     "@evenrealities/even_hub_sdk": "^0.0.16"
@@ -16,6 +20,7 @@
   "devDependencies": {
     "@evenrealities/evenhub-cli": "^0.1.14",
     "@evenrealities/evenhub-simulator": "^0.9.5",
+    "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "vite": "^5.4.21"
   }

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Now Playing (mock Spotify)</title>
+  </head>
+  <body>
+    <!-- Runs the real app against dev/mock-spotify.ts. Pick a scenario with ?scenario=… -->
+    <script type="module">
+      import { waitForEvenAppBridge } from '@evenrealities/even_hub_sdk'
+      import { mock } from './mock-spotify.ts'
+
+      const bridge = await waitForEvenAppBridge()
+      await bridge.setLocalStorage('client_id', '0123456789abcdef0123456789abcdef')
+      await bridge.setLocalStorage('refresh_token', 'rt-0')
+      await bridge.setLocalStorage('swipe_next', 'down')
+
+      const scenario = new URLSearchParams(location.search).get('scenario') ?? 'default'
+      console.log('[mock] scenario', scenario)
+
+      if (scenario === 'faults') {
+        mock.stop()                                                               // nothing active: play must pick a device
+        mock.fail('^GET /me/player\\?', { status: 429, headers: { 'Retry-After': '4' }, skip: 3 })
+        mock.fail('^GET /me/playlists', { status: 502, body: '<html>Bad Gateway</html>' })
+        mock.fail('^GET /me/player\\?', { offline: true, times: 3, skip: 8 })
+        mock.fail('^GET /me/player/queue', { status: 401, message: 'The access token expired' })
+        mock.fail('^GET /me/albums', { hang: true })                             // a request that never answers
+        // When the app refreshes after that 401, pretend another copy of the app
+        // rotated the refresh token first: Spotify rejects ours, storage has a newer one.
+        mock.failToken('invalid_grant', { skip: 1, onHit: () => bridge.setLocalStorage('refresh_token', 'rt-rotated') })
+      }
+      if (scenario === 'logged-out') {
+        await bridge.setLocalStorage('refresh_token', 'revoked')
+      }
+
+      // Load the real app (index.html's script) after the mock is in place.
+      const html = await (await fetch('/index.html')).text()
+      document.body.innerHTML = new DOMParser().parseFromString(html, 'text/html').body.innerHTML.replace(/<script[\s\S]*?<\/script>/g, '')
+      document.head.insertAdjacentHTML('beforeend', new DOMParser().parseFromString(html, 'text/html').head.querySelector('style').outerHTML)
+      await import('/src/main.ts')
+    </script>
+  </body>
+</html>
