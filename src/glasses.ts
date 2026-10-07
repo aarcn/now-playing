@@ -20,6 +20,7 @@ import type { Album, ContextRef, Page, Playlist, PlayerState, Track } from './sp
 import { clip, label, mmss } from './text'
 import { prefs, onPrefsChange, savePrefs, type SwipeDir, type TapAction } from './prefs'
 import { ART_SIZE, cachedArt, loadArt } from './art'
+import { getLyrics, lineAt, type Lyrics } from './lyrics'
 
 // ---------- Tunables ----------
 const W = 576
@@ -79,6 +80,11 @@ let commandChain: Promise<void> = Promise.resolve()
 let commandEpoch = 0
 let holdUntil = 0
 
+// Lyrics for the current song, and a timer that fires exactly when the next line starts.
+let lyrics: Lyrics | 'loading' | 'error' | null = null
+let lyricTimer = 0
+const LYRIC_LEAD_MS = 400     // show each line slightly early to cover Bluetooth and reading time
+
 // "Teach" mode from the phone: the next swipe on the glasses becomes "next song".
 let learnSwipe: ((dir: SwipeDir | null) => void) | null = null
 
@@ -111,6 +117,34 @@ function notice(): string {
 }
 
 const isMedia = (p: PlayerState | null): p is PlayerState => !!p && (p.kind === 'track' || p.kind === 'episode')
+
+/**
+ * The two lyric lines for the screen: the line being sung (allowed to wrap to
+ * two lines) and the one after it. Null when lyrics are off or not a song.
+ */
+function lyricBlock(currentMax: number, nextMax: number): string[] | null {
+  if (!prefs.lyrics || player?.kind !== 'track') return null
+  // The glasses font has no music-note symbol, so messages are in parentheses.
+  if (lyrics === null || lyrics === 'loading') return ['(finding lyrics...)', '']
+  if (lyrics === 'error') return ['(couldn\'t load lyrics)', '']
+  if (lyrics.kind === 'none') return ['(no lyrics found)', '']
+  if (lyrics.kind === 'plain') return ['(lyrics aren\'t timed for this song)', '']
+  if (lyrics.kind === 'instrumental') return ['(instrumental)', '']
+  const i = lineAt(lyrics.lines, progressMs() + LYRIC_LEAD_MS)
+  const current = i >= 0 ? lyrics.lines[i].text : ''
+  const next = lyrics.lines[i + 1]?.text ?? ''
+  return [`> ${clip(current, currentMax) || '...'}`, next ? `  ${clip(next, nextMax)}` : '']
+}
+
+/** Redraws exactly when the next lyric line starts, instead of waiting for the 1 s tick. */
+function scheduleLyricTick() {
+  clearTimeout(lyricTimer)
+  if (!prefs.lyrics || !lyrics || typeof lyrics !== 'object' || lyrics.kind !== 'synced') return
+  if (!player?.isPlaying || stack.length || hidden) return
+  const pos = progressMs() + LYRIC_LEAD_MS
+  const next = lyrics.lines[lineAt(lyrics.lines, pos) + 1]
+  if (next) lyricTimer = window.setTimeout(() => void updateNow(), Math.max(30, next.ms - pos + 15))
+}
 
 function desiredLayout(): Layout {
   if (hidden) return 'hidden'
@@ -155,6 +189,8 @@ function nowContent(layout: Layout): { head: string; foot: string } {
 
   if (layout === 'art') {
     // ~30 characters fit beside a 144 px cover.
+    const block = lyricBlock(58, 28)
+    if (block) return { head: [`${icon}  ${clip(p.title, 26) || 'Untitled'}`, clip(p.artists, 30), ...block].join('\n').trimEnd(), foot }
     const head = [
       `${icon}  ${clip(p.title, 26) || 'Untitled'}`,
       clip(p.artists, 30),
@@ -165,8 +201,9 @@ function nowContent(layout: Layout): { head: string; foot: string } {
   }
 
   const subtitle = p.kind === 'episode' ? p.artists : [p.artists, p.album?.name].filter(Boolean).join(' · ')
+  const block = lyricBlock(88, 44)
   return {
-    head: [`${icon}  ${clip(p.title, 34) || 'Untitled'}`, clip(subtitle, 46), clip(from, 46)].join('\n'),
+    head: [`${icon}  ${clip(p.title, 34) || 'Untitled'}`, clip(subtitle, 46), ...(block ?? [clip(from, 46)])].join('\n'),
     foot,
   }
 }
@@ -279,6 +316,7 @@ async function render(): Promise<void> {
   logNow(layout, content)
   if (!(await rebuild(nowPage(layout, content)))) shownLayout = null
   if (layout === 'art') void sendArt()
+  scheduleLyricTick()
 }
 
 let updating = false
@@ -302,6 +340,7 @@ async function updateNow(): Promise<void> {
   } finally {
     updating = false
   }
+  scheduleLyricTick()
 }
 
 async function updateNowOnce(): Promise<void> {
@@ -575,6 +614,7 @@ function menuView(): View {
 
     const nextRepeat: Record<spotify.Repeat, spotify.Repeat> = { off: 'context', context: 'track', track: 'off' }
     const repeatName: Record<spotify.Repeat, string> = { off: 'Off', context: 'All', track: 'One song' }
+    rows.push(lyricsRow())
     rows.push({
       label: `Repeat: ${repeatName[p.repeat]}`,
       run: () => {
@@ -595,6 +635,7 @@ function menuView(): View {
     rows.push({ label: arrow('Seek'), run: () => push(seekView()) })
   }
 
+  if (!playing) rows.push(lyricsRow())
   rows.push({ label: arrow(p?.device ? `Device: ${clip(p.device.name, 24)}` : 'Devices'), run: async () => push(await devicesView()) })
 
   if (playing && p.album) rows.push({ label: arrow(`Album: ${clip(p.album.name, 28)}`), run: () => openAlbum(p.album!.uri, p.album!.name) })
@@ -604,6 +645,18 @@ function menuView(): View {
   // The system dialog may not answer until the user does, so don't wait on it.
   rows.push({ label: 'Exit', run: async () => { void serial(b => b.shutDownPageContainer(1)).catch(() => {}) } })
   return { title: 'Menu  ·  double-tap = back', rows }
+}
+
+function lyricsRow(): Row {
+  return {
+    label: `Lyrics: ${prefs.lyrics ? 'On' : 'Off'}`,
+    run: async () => {
+      const on = !prefs.lyrics
+      await savePrefs({ lyrics: on })
+      showFlash(on ? 'Lyrics on' : 'Lyrics off')
+      await home()
+    },
+  }
 }
 
 async function homeThen(job: Promise<void>) {
@@ -878,7 +931,7 @@ async function refresh(): Promise<void> {
     status = ''
     failures = 0
 
-    if (trackChanged) { loadSaved(); loadNextUp(); prefetchArt() }
+    if (trackChanged) { loadSaved(); loadNextUp(); prefetchArt(); loadLyrics() }
     if (contextChanged) loadContextName()
     if (trackChanged || playStateChanged) wake()
   } catch (e) {
@@ -929,6 +982,21 @@ function loadNextUp() {
     .catch(() => {})
 }
 
+function loadLyrics() {
+  clearTimeout(lyricTimer)
+  lyrics = null
+  const p = player
+  if (!prefs.lyrics || p?.kind !== 'track') return
+  lyrics = 'loading'
+  const uri = p.uri
+  getLyrics({ uri, title: p.title, artist: p.artist?.name ?? p.artists, album: p.album?.name ?? '', durationMs: p.durationMs })
+    .then(found => { if (player?.uri === uri) { lyrics = found; void updateNow() } })
+    .catch(e => {
+      debug('lyrics failed', e)
+      if (player?.uri === uri) { lyrics = 'error'; void updateNow() }
+    })
+}
+
 /** Called by the phone screen after signing in or out. */
 export function refreshNow() {
   status = ''
@@ -938,6 +1006,7 @@ export function refreshNow() {
 // ---------- Settings changes from the phone ----------
 onPrefsChange(changed => {
   if ('showNext' in changed) loadNextUp()
+  if ('lyrics' in changed) loadLyrics()
   if ('glanceSeconds' in changed) { hidden = false; wakeUntil = Date.now() + prefs.glanceSeconds * 1000 }
   if ('albumArt' in changed) { artFailed.clear(); artLoadFailures = 0; prefetchArt() }
   if ('speed' in changed) { clearTimeout(pollTimer); pollTimer = 0; schedulePoll(nextPollDelay()) }

@@ -1,7 +1,7 @@
 {
   "name": "nowplaying",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "pack": "npm run build && evenhub pack app.json dist",
     "simulate": "evenhub-simulator http://localhost:5173",
-    "test": "tsx dev/text.test.ts",
+    "test": "tsx dev/text.test.ts && tsx dev/lyrics.test.ts",
     "mock": "vite --host 127.0.0.1",
     "simulate:mock": "evenhub-simulator http://127.0.0.1:5173/dev/mock.html --automation-port 9898",
     "test:e2e": "node dev/sim-test.mjs"

@@ -533,6 +533,83 @@ async function settingsUiScenario() {
   })
 }
 
+async function lyricsScenario() {
+  const lyricNum = t => Number((t.match(/^> Test lyric line (\d+)$/m) ?? [])[1])
+  const elapsed = t => { const [m, s] = t.match(/(\d+):(\d\d)  [\u2501\u2500]/).slice(1).map(Number); return m * 60 + s }
+
+  await step('lyrics are off by default', async () => {
+    assert(await waitFor(() => lastNow().includes('Bohemian')), 'song')
+    assert(!/^> /m.test(lastNow()), 'no lyric lines yet')
+  })
+
+  await step('menu has a Lyrics toggle that turns them on', async () => {
+    await input('double_click')
+    await waitView('Menu')
+    const m = mark()
+    await select('Lyrics: Off')
+    assert(await waitFor(() => nows(m).some(t => t.includes('Lyrics on'))), 'no confirmation')
+    assert(await waitFor(() => api(m).some(c => c.startsWith('GET lrclib /api/get Bohemian Rhapsody (identified)'))), `lookup: ${api(m)}`)
+  })
+
+  await step('the current line matches the song position, with the next line under it', async () => {
+    const t = await waitFor(() => lyricNum(lastNow()) && lastNow())
+    assert(t, `no lyric line: ${JSON.stringify(lastNow())}`)
+    const expected = Math.floor((elapsed(t) + 0.4) / 5) + 1   // lines every 5 s, shown 0.4 s early
+    assert(Math.abs(lyricNum(t) - expected) <= 1, `line ${lyricNum(t)} at ${elapsed(t)} s, expected ~${expected}`)
+    assert(t.includes(`  Test lyric line ${lyricNum(t) + 1}`), 'next line missing')
+    await shot('01-lyrics-cover')
+  })
+
+  await step('lines advance on time, not just on the 1 s tick', async () => {
+    const first = lyricNum(lastNow())
+    const m = mark()
+    const changed = await waitFor(() => nows(m).find(t => lyricNum(t) === first + 1), 7000)
+    assert(changed, 'line never advanced')
+    // The change should land within ~0.6 s of a 5 s boundary minus the 0.4 s lead.
+    const entry = since(m).find(e => e.message.startsWith('[np] now ') && lyricNum(JSON.parse(e.message.slice(9))) === first + 1)
+    const sec = elapsed(JSON.parse(entry.message.slice(9)))
+    assert(sec % 5 >= 4 || sec % 5 <= 1, `changed at ${sec} s`)
+  })
+
+  await step('untimed lyrics say so', async () => {
+    await input('down')
+    assert(await waitFor(() => lastNow().includes('Redbone') && lastNow().includes("(lyrics aren't timed for this song)"), 6000), JSON.stringify(lastNow()))
+  })
+
+  await step('"- Remastered" titles fall back to a search and skip results of the wrong length', async () => {
+    const m = mark()
+    await input('down')
+    assert(await waitFor(() => /^> Fallback line \d+$/m.test(lastNow()), 8000), JSON.stringify(lastNow()))
+    assert(api(m).some(c => c.startsWith("GET lrclib /api/search Don't Stop Me Now")), `calls: ${api(m)}`)
+    assert(!lastNow().includes('Wrong length'), 'picked the wrong-length result')
+  })
+
+  await step('songs without lyrics say so (text layout when the cover is missing)', async () => {
+    await input('down')
+    assert(await waitFor(() => lastNow().includes('道') && lastNow().includes('(no lyrics found)'), 8000), JSON.stringify(lastNow()))
+    await shot('02-no-lyrics-text-layout')
+  })
+
+  await step('instrumentals say so', async () => {
+    await input('down')
+    assert(await waitFor(() => lastNow().includes('Fire Track') && lastNow().includes('(instrumental)'), 8000), JSON.stringify(lastNow()))
+  })
+
+  await step('going back reuses cached lyrics (no new lookup)', async () => {
+    const m = mark()
+    await input('up')   // previous (near the start of the song)
+    assert(await waitFor(() => lastNow().includes('道'), 6000), 'did not go back')
+    await sleep(1500); await poll()
+    assert(!api(m).some(c => c.includes('lrclib')), `looked up again: ${api(m)}`)
+  })
+
+  await step('menu toggle turns lyrics off again', async () => {
+    await input('double_click'); await waitView('Menu')
+    await select('Lyrics: On')
+    assert(await waitFor(() => lastNow().includes('Lyrics off') && !lastNow().includes('(no lyrics found)')), JSON.stringify(lastNow()))
+  })
+}
+
 async function loggedOutScenario() {
   await step('a revoked sign-in tells the user to reconnect on the phone', async () => {
     assert(await waitFor(() => lastNow().startsWith('Not signed in')), `now: ${lastNow()}`)
@@ -550,7 +627,7 @@ async function loggedOutScenario() {
 // ---------------------------------------------------------------------------
 console.log(`scenario: ${scenario}`)
 await waitFor(() => log.some(e => e.message.startsWith('[np] now ')), 15000)
-await ({ default: defaultScenario, faults: faultsScenario, 'logged-out': loggedOutScenario, settings: settingsScenario, 'settings-ui': settingsUiScenario })[scenario]()
+await ({ default: defaultScenario, faults: faultsScenario, 'logged-out': loggedOutScenario, settings: settingsScenario, 'settings-ui': settingsUiScenario, lyrics: lyricsScenario })[scenario]()
 await poll()
 const errors = log.filter(e => e.level === 'error' || e.message.startsWith('[uncaught]') || e.message.startsWith('[unhandledrejection]'))
 if (errors.length) { failed++; console.log('  FAIL uncaught errors:\n       ' + errors.map(e => e.message).join('\n       ')) }

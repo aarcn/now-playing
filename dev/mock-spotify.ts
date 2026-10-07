@@ -256,6 +256,41 @@ async function coverImage(url: URL): Promise<Response> {
   return new Response(blob, { status: 200, headers: { 'Content-Type': 'image/png' } })
 }
 
+// ---------- lyrics ----------
+// A stand-in for LRCLIB with placeholder text (never real lyrics). Each case
+// exercises a different path in the app's lookup.
+const timed = (label: string, everySec: number, count: number) =>
+  Array.from({ length: count }, (_, i) => {
+    const t = i * everySec
+    return `[${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}.00] ${label} line ${i + 1}`
+  }).join('\n')
+
+async function fakeLrclib(url: URL, init: RequestInit): Promise<Response> {
+  const client = new Headers(init.headers).get('Lrclib-Client')
+  console.log('[api] GET lrclib', url.pathname, url.searchParams.get('track_name'), client ? '(identified)' : '(anonymous)')
+  await new Promise(r => setTimeout(r, 80))
+  const title = (url.searchParams.get('track_name') ?? '').replace(/\u2019/g, "'")
+  const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  const notFound = () => new Response(JSON.stringify({ code: 404, name: 'TrackNotFound', message: 'Failed to find specified track' }), { status: 404 })
+
+  if (url.pathname === '/api/get') {
+    if (title === 'Bohemian Rhapsody') return json({ id: 1, trackName: title, duration: 354, instrumental: false, plainLyrics: 'x', syncedLyrics: timed('Test lyric', 5, 70) })
+    if (title === 'Redbone') return json({ id: 2, trackName: title, duration: 327, instrumental: false, plainLyrics: 'Untimed placeholder words', syncedLyrics: null })
+    if (title.startsWith('🔥')) return json({ id: 3, trackName: title, duration: 210, instrumental: true, plainLyrics: null, syncedLyrics: null })
+    return notFound()   // includes the "- Remastered 2011" title, which the app should retry without
+  }
+  if (url.pathname === '/api/search') {
+    if (title === "Don't Stop Me Now") {
+      return json([
+        { id: 9, trackName: title, duration: 300, syncedLyrics: timed('Wrong length', 4, 60) },   // too far off in length: must be skipped
+        { id: 4, trackName: title, duration: 209, syncedLyrics: timed('Fallback', 4, 60) },
+      ])
+    }
+    return json([])
+  }
+  return notFound()
+}
+
 // ---------- install ----------
 let tokenN = 0
 
@@ -263,6 +298,7 @@ const realFetch = window.fetch.bind(window)
 window.fetch = async (input: RequestInfo | URL, init: RequestInit = {}) => {
   const url = new URL(String(input instanceof Request ? input.url : input), location.href)
   if (url.hostname === 'i.scdn.co') return coverImage(url)
+  if (url.hostname === 'lrclib.net') return fakeLrclib(url, init)
   if (!/spotify\.com$/.test(url.hostname)) return realFetch(input, init)
   const method = (init.method ?? 'GET').toUpperCase()
   const label = `${method} ${url.pathname.replace('/v1', '')}${url.search}`

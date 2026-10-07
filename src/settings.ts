@@ -110,7 +110,7 @@ function renderGuide() {
   rows.push(
     [next, 'Next song'],
     [back, prefs.backRestartsFirst ? 'Restart, or previous if near the start' : 'Previous song'],
-    ['Double-tap', 'Menu: library, queue, like, shuffle, repeat, volume, seek, devices. Double-tap again to go back.'],
+    ['Double-tap', 'Menu: library, queue, like, shuffle, lyrics, repeat, volume, seek, devices. Double-tap again to go back.'],
   )
   if (prefs.glanceSeconds) rows.push(['Screen hidden?', 'Tap to bring it back'])
 

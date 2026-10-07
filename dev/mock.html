@@ -39,6 +39,9 @@
           nextSwipe: 'up', backRestartsFirst: false, tapRight: 'next', glanceSeconds: 5,
         }))
       }
+      if (scenario === 'lyrics') {
+        await bridge.setLocalStorage('prefs_v1', JSON.stringify({ albumArt: true }))
+      }
       if (scenario === 'settings-ui') {
         await bridge.setLocalStorage('prefs_v1', '{}')
         // Click through the real phone settings page once the app is up.

@@ -13,6 +13,7 @@ export interface Prefs {
   showNext: boolean           // "Next: ..." line on the now-playing screen
   showClock: boolean
   timeLeft: boolean           // show time remaining instead of the song's length
+  lyrics: boolean             // time-synced lyrics from LRCLIB on the now-playing screen
   glanceSeconds: number       // 0 = always on; otherwise hide the screen after this many seconds
   speed: Speed                // how often to ask Spotify for updates
 }
@@ -26,6 +27,7 @@ export const DEFAULTS: Prefs = {
   showNext: false,
   showClock: false,
   timeLeft: false,
+  lyrics: false,
   glanceSeconds: 0,
   speed: 'normal',
 }
