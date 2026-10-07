@@ -1,0 +1,17 @@
+{
+  "package_id": "no.aaronca.nowplaying",
+  "edition": "202601",
+  "name": "Now Playing",
+  "version": "0.1.0",
+  "min_app_version": "2.2.10",
+  "min_sdk_version": "0.0.16",
+  "entrypoint": "index.html",
+  "permissions": [
+    {
+      "name": "network",
+      "desc": "Talks to Spotify to show what's playing, control playback, and browse your library.",
+      "whitelist": ["https://accounts.spotify.com", "https://api.spotify.com"]
+    }
+  ],
+  "supported_languages": ["en"]
+}

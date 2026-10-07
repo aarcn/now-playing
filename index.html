@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no" />
+    <title>Now Playing</title>
+    <style>
+      :root {
+        --bg: #1c1c1c;
+        --card: #262626;
+        --line: #353535;
+        --text: #e8e8e8;
+        --muted: #9a9a9a;
+        --accent: #7ee08a;
+        --danger: #ff8a7a;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 15px/1.5 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        touch-action: manipulation;
+        -webkit-text-size-adjust: 100%;
+        overscroll-behavior: none;
+      }
+      main { max-width: 460px; margin: 0 auto; padding: 28px 18px 40px; }
+      h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: -0.01em; }
+      #status { margin: 0 0 20px; color: var(--muted); font-size: 14px; }
+      #status::before { content: '●'; margin-right: 6px; color: var(--muted); }
+      #status[data-ok='true']::before { color: var(--accent); }
+      #error { color: var(--danger); font-size: 14px; min-height: 1em; margin: 0 0 12px; }
+      #error:empty { display: none; }
+      section { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-bottom: 14px; }
+      h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 10px; font-weight: 600; }
+      ol { margin: 0; padding-left: 20px; }
+      li { margin-bottom: 12px; }
+      li:last-child { margin-bottom: 0; }
+      a { color: var(--accent); }
+      code {
+        display: block; margin-top: 6px; padding: 8px 10px; border-radius: 8px;
+        background: var(--bg); border: 1px solid var(--line);
+        font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all;
+      }
+      .row { display: flex; gap: 8px; margin-top: 8px; }
+      input {
+        flex: 1; min-width: 0; padding: 10px 12px; border-radius: 10px;
+        border: 1px solid var(--line); background: var(--bg); color: var(--text);
+        font: 14px ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      button {
+        padding: 10px 14px; border-radius: 10px; border: 0; cursor: pointer;
+        background: var(--accent); color: #102313; font: 600 14px system-ui, sans-serif;
+      }
+      button.secondary { background: var(--line); color: var(--text); }
+      table { width: 100%; border-collapse: collapse; font-size: 14px; }
+      td { padding: 6px 0; border-top: 1px solid var(--line); }
+      tr:first-child td { border-top: 0; }
+      td:first-child { color: var(--muted); width: 45%; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Now Playing</h1>
+      <p id="status">Checking…</p>
+      <p id="error"></p>
+
+      <section id="setup" hidden>
+        <h2>Connect Spotify</h2>
+        <ol>
+          <li>Create an app at <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">developer.spotify.com/dashboard</a> and tick <b>Web API</b>. Spotify requires a Premium account for this.</li>
+          <li>Add this as a Redirect URI:
+            <code id="redirect"></code>
+            <div class="row"><button id="copy" class="secondary">Copy</button></div>
+          </li>
+          <li>Paste your app's Client ID:
+            <div class="row">
+              <input id="client-id" placeholder="Client ID" autocomplete="off" autocapitalize="off" spellcheck="false" />
+              <button id="connect">Connect</button>
+            </div>
+          </li>
+        </ol>
+      </section>
+
+      <section id="connected" hidden>
+        <h2>Account</h2>
+        <div class="row"><button id="logout" class="secondary">Disconnect Spotify</button></div>
+      </section>
+
+      <section>
+        <h2>On the glasses</h2>
+        <table>
+          <tr><td>Tap</td><td>Play / pause</td></tr>
+          <tr><td>Swipe down</td><td>Next track</td></tr>
+          <tr><td>Swipe up</td><td>Previous track</td></tr>
+          <tr><td>Double-tap</td><td>Library / back</td></tr>
+          <tr><td>Library → Exit</td><td>Close the app</td></tr>
+        </table>
+      </section>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
