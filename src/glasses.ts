@@ -100,7 +100,7 @@ function statusLine(p: PlayerState | null): string {
   const bits: string[] = []
   if (prefs.showClock) bits.push(clock())
   if (p) {
-    if (saved) bits.push('♥')
+    if (saved !== null) bits.push(saved ? '\u2665' : '\u2661')   // filled = in Liked Songs; blank while checking
     if (p.shuffle) bits.push('Shuffle')
     if (p.repeat === 'context') bits.push('Repeat')
     if (p.repeat === 'track') bits.push('Repeat one')
@@ -216,15 +216,11 @@ function nowContent(layout: Layout): Parts {
     }
   }
 
+  // Same rows as the cover layout, just full width: details, a gap, then progress and "Next:".
   const subtitle = p.kind === 'episode' ? p.artists : [p.artists, p.album?.name].filter(Boolean).join(' \u00B7 ')
   return {
-    info: [
-      `${icon}  ${clipPx(p.title, LINE_PX - 30) || 'Untitled'}`,
-      clipPx(subtitle, LINE_PX),
-      clipPx(statusOrNote, LINE_PX),
-      progressLine(p, LINE_PX, 20),
-      clipPx(nextLine(), LINE_PX),
-    ].join('\n'),
+    info: [`${icon}  ${clipPx(p.title, LINE_PX - 30) || 'Untitled'}`, clipPx(subtitle, LINE_PX), clipPx(statusOrNote, LINE_PX)].join('\n'),
+    bar: [progressLine(p, LINE_PX, 20), clipPx(nextLine(), LINE_PX)].join('\n'),
     now: lyricText,
   }
 }
@@ -261,11 +257,13 @@ function textBox(id: number, name: string, x: number, y: number, w: number, h: n
 // glyphs sit about 5-21 px below its top. The cover is at (12, 12), 144 px
 // square, so its bottom edge is y = 155.
 const ART_TEXT_X = 164
-const LINE_PX = W - 2 * 16                  // usable text width, full-width lines
-const ART_LINE_PX = W - ART_TEXT_X - 6 - 8   // usable text width beside the cover
-const ART_BAR_Y = 106         // progress bar, then "Next:" one line lower, level with the cover's bottom
-const ART_LYRICS_Y = 170
-const TEXT_LYRICS_Y = 164     // about a line's gap below "Next:" in the text-only layout
+// Usable text widths, leaving ~10 px spare since the width estimate can be a
+// pixel or two narrow. Full-width boxes have 554-560 px; beside the cover, 400.
+const LINE_PX = W - 2 * 16
+const ART_LINE_PX = 390
+// Both layouts use the same rows, so turning the cover on or off only moves text sideways.
+const BAR_Y = 106             // progress bar, then "Next:" one line lower, level with the cover's bottom
+const LYRICS_Y = 170
 
 function nowPage(layout: Layout, parts: Parts): PageConfig {
   if (layout === 'hidden') {
@@ -280,20 +278,21 @@ function nowPage(layout: Layout, parts: Parts): PageConfig {
       containerTotalNum: 4,
       imageObject: [new ImageContainerProperty({ xPosition: 12, yPosition: 12, width: ART_SIZE, height: ART_SIZE, containerID: 3, containerName: 'art' })],
       textObject: [
-        textBox(2, 'info', ART_TEXT_X, 2, W - ART_TEXT_X, ART_BAR_Y - 2, parts.info ?? ' ', false, 6),
+        textBox(2, 'info', ART_TEXT_X, 2, W - ART_TEXT_X, BAR_Y - 2, parts.info ?? ' ', false, 6),
         // No padding (it would push the lines down), so shift right 6 px to match the info text.
-        textBox(4, 'bar', ART_TEXT_X + 6, ART_BAR_Y, W - ART_TEXT_X - 6, 56, parts.bar ?? ' ', false, 0),
+        textBox(4, 'bar', ART_TEXT_X + 6, BAR_Y, W - ART_TEXT_X - 6, 56, parts.bar ?? ' ', false, 0),
         // x = 8 plus 4 px padding lines the lyrics up with the cover's left edge.
-        textBox(1, 'now', 8, ART_LYRICS_Y, W - 8, H - ART_LYRICS_Y, parts.now, true, 4),
+        textBox(1, 'now', 8, LYRICS_Y, W - 8, H - LYRICS_Y, parts.now, true, 4),
       ],
     }
   }
+  // Text starts at x = 16 in every box: padding plus x offset.
   return {
-    containerTotalNum: 2,
+    containerTotalNum: 3,
     textObject: [
-      // Five lines need 135 px plus padding; any less and the firmware adds a scrollbar.
-      textBox(2, 'info', 4, 4, W - 4, TEXT_LYRICS_Y - 4, parts.info ?? ' ', false, 12),
-      textBox(1, 'now', 12, TEXT_LYRICS_Y, W - 12, H - TEXT_LYRICS_Y, parts.now, true, 4),
+      textBox(2, 'info', 10, 2, W - 10, BAR_Y - 2, parts.info ?? ' ', false, 6),
+      textBox(4, 'bar', 16, BAR_Y, W - 16, 56, parts.bar ?? ' ', false, 0),
+      textBox(1, 'now', 12, LYRICS_Y, W - 12, H - LYRICS_Y, parts.now, true, 4),
     ],
   }
 }
@@ -395,7 +394,7 @@ async function updateNowOnce(): Promise<void> {
   const content = nowContent(layout)
   const boxes: [keyof Parts, number][] =
     layout === 'art' ? [['info', 2], ['bar', 4], ['now', 1]]
-    : layout === 'single' ? [['info', 2], ['now', 1]]
+    : layout === 'single' ? [['info', 2], ['bar', 4], ['now', 1]]
     : [['now', 1]]
   const changed = boxes.filter(([key]) => content[key] !== shown[key])
   if (changed.length) logNow(layout, content)
@@ -999,7 +998,8 @@ function loadNextUp(clear = true) {
     .then(queue => {
       if (player?.uri !== uri) return
       const n = queue[0]
-      nextUp = n ? clip(n.subtitle ? `${n.title} \u00B7 ${n.subtitle}` : n.title, 40) : 'nothing queued'
+      // Not trimmed here: each layout trims it to the width it has.
+      nextUp = n ? (n.subtitle ? `${n.title} \u00B7 ${n.subtitle}` : n.title) : 'nothing queued'
       void updateNow()
     })
     .catch(() => {})

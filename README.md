@@ -11,7 +11,7 @@ Spotify for the Even Realities G2: what's playing at a glance, gestures for the 
 | Swipe up | Restart the song, or go to the previous one if you're in the first 5 seconds |
 | Double-tap | Open the menu; double-tap again to go back a level |
 
-The now-playing screen shows the song and artist, a status line (clock, ♥ if the song is in your Liked Songs, shuffle/repeat), the progress bar, and "Next:" with the song after this one, then up to three lines of lyrics when they're on. With the album cover on, the song details, progress bar and "Next:" sit beside the cover ("Next:" level with its bottom edge) and the lyrics run full-width below. The playing device is in the menu, not on the screen.
+The now-playing screen shows the song and artist, a status line (clock, ♥ if the song is in your Liked Songs or ♡ if not, shuffle/repeat), the progress bar, and "Next:" with the song after this one, then up to three lines of lyrics when they're on. Both layouts use the same rows: with the album cover on, the song details, progress bar and "Next:" sit beside the cover ("Next:" level with its bottom edge); with it off they start at the left edge. Lyrics run full-width below either way. The playing device is in the menu, not on the screen.
 
 **Menu**
 
@@ -99,5 +99,5 @@ Scenarios: `default` (every screen and control), `faults` (no active device, rat
 - `src/prefs.ts`: settings, saved on the phone
 - `src/art.ts`: album covers, contrast-stretched and dithered for the 16-shade display
 - `src/lyrics.ts`: LRCLIB lookup, LRC parsing, current-line lookup
-- `src/text.ts`: makes text safe for the glasses font
+- `src/text.ts`: makes text safe for the glasses font and estimates its width (calibrated with `dev/calibrate.html`)
 - `src/bridge.ts`: Even bridge connection, call queue, storage

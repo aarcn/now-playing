@@ -20,10 +20,21 @@ check(label('🔥🔥🔥', 'Untitled'), 'Untitled', 'all-emoji fallback')
 check(mmss(3725000), '1:02:05', 'hours')
 check(mmss(65000), '1:05', 'minutes')
 check(mmss(-5), '0:00', 'negative')
-// approxPx is calibrated to simulator measurements (it may err a little wide, never much narrow)
-const near = (est: number, measured: number) => est >= measured - 5 && est <= measured * 1.12
-check(near(approxPx('Next: Redbone \u00B7 Childish Ga...'), 250), true, 'approxPx vs measured 250px')
-check(near(approxPx('Queen \u00B7 A Night at the Opera'), 244), true, 'approxPx vs measured 244px')
+// approxPx vs widths measured in simulator screenshots: never narrower, at most ~8% wider.
+const measured: [string, number][] = [
+  ['the quick brown fox jumps over the lazy dog', 380],
+  ['THE QUICK BROWN FOX JUMPS', 262],
+  ['01234567890123456789', 223],
+  ['Next: Don\'t Stop Me Now - Remastered 2011 \u00B7...', 408],
+  ['Childish Gambino \u00B7 "Awaken, My Love!"', 326],
+  ['Queen \u00B7 A Night at the Opera', 243],
+  ['Next: Redbone \u00B7 Childish Gambino', 283],
+  ['Test lyric line 22', 139],
+]
+for (const [text, px] of measured) {
+  const est = approxPx(text)
+  check(est >= px - 3 && est <= px * 1.08, true, `approxPx(${JSON.stringify(text)}) = ${est}, measured ${px}`)
+}
 check(approxPx(clipPx('WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW', 396)) <= 396, true, 'clipPx keeps all-caps within width')
 check(clipPx('Short', 396), 'Short', 'clipPx leaves short text alone')
 console.log(fail ? `${fail} failures` : 'all text tests pass')

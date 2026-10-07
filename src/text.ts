@@ -46,21 +46,26 @@ export function clip(input: string, max: number, maxBytes = Infinity): string {
 }
 
 /**
- * Rough rendered width in pixels in the glasses' proportional font, calibrated
- * against simulator screenshots (it errs a little wide). Good enough to keep a
- * line from wrapping.
+ * Rough rendered width in pixels in the glasses' proportional font. Character
+ * widths were measured from simulator screenshots (dev/calibrate.html); the
+ * estimate runs a few percent wide so a line never wraps.
  */
 export function approxPx(s: string): number {
   let w = 0
   for (const ch of s) {
-    if (WIDE.test(ch)) w += 22
-    else if (/[MWmw@%]/.test(ch)) w += 15
-    else if (/[A-Z0-9#&?]/.test(ch)) w += 12
-    else if (/[ilIj.,:;'!|]/.test(ch)) w += 5
-    else if (ch === ' ') w += 6
-    else w += 10
+    if (WIDE.test(ch)) w += 24
+    else if (ch === '\u25B6') w += 23                  // play icon
+    else if (ch === '\u2665' || ch === '\u2661') w += 20 // hearts
+    else if (/[MWmw@%]/.test(ch)) w += 16
+    else if (/[A-Z]/.test(ch)) w += /[IJ]/.test(ch) ? 6 : 12
+    else if (/[0-9]/.test(ch)) w += 11.5
+    else if (/[ijl.,:;'!|\u00B7]/.test(ch)) w += 5
+    else if (/[frt]/.test(ch)) w += 7
+    else if (ch === ' ') w += 5.3
+    else if (/[-"()\[\]\/]/.test(ch)) w += 8
+    else w += 10.3
   }
-  return w
+  return Math.ceil(w)
 }
 
 /** Like `clip`, but by estimated pixel width: use it for lines that must not wrap. */

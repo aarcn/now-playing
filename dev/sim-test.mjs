@@ -179,6 +179,8 @@ async function defaultScenario() {
     await select('♥ Liked')
     assert(await waitFor(() => api(m).some(c => c.startsWith('DELETE /me/library?uris='))), `calls: ${api(m)}`)
     assert(await waitFor(() => nows(m).some(t => t.includes('Removed from Liked Songs'))), 'notice')
+    // Once the notice clears, the status line shows an empty heart.
+    assert(await waitFor(() => lastNow().split('\n')[2]?.includes('\u2661'), 7000), `no empty heart: ${JSON.stringify(lastNow())}`)
   })
 
   await step('playlists: emoji names cleaned, all-emoji name gets a fallback, paging works', async () => {

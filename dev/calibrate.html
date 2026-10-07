@@ -1,0 +1,19 @@
+<!doctype html>
+<html><head><meta charset="UTF-8" /><title>Font calibration</title></head>
+<body>
+<!-- Renders one line per entry of ?lines=["...", ...] on the glasses so text widths
+     can be measured from a simulator screenshot (used to tune approxPx in src/text.ts). -->
+<script type="module">
+  import { waitForEvenAppBridge, CreateStartUpPageContainer, TextContainerProperty } from '@evenrealities/even_hub_sdk'
+  const lines = JSON.parse(new URLSearchParams(location.search).get('lines') ?? '[]')
+  const bridge = await waitForEvenAppBridge()
+  await bridge.createStartUpPageContainer(new CreateStartUpPageContainer({
+    containerTotalNum: 1,
+    textObject: [new TextContainerProperty({
+      xPosition: 0, yPosition: 0, width: 576, height: 288, borderWidth: 0, paddingLength: 4,
+      containerID: 1, containerName: 'cal', content: lines.join('\n'), isEventCapture: 1,
+    })],
+  }))
+  console.log('[cal] rendered', lines.length)
+</script>
+</body></html>
