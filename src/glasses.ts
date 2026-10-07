@@ -25,7 +25,7 @@ import { getLyrics, lineAt, type Lyrics } from './lyrics'
 // ---------- Tunables ----------
 const W = 576
 const H = 288
-const BAR_CHARS = 20          // progress bar width in characters
+const BAR_CHAR_PX = 20        // width of one progress-bar character in the glasses font
 const MAX_ROWS = 20           // firmware limit for a list
 const FLASH_MS = 4000
 const POLL_MS = {             // [playing, idle, glasses app in background]
@@ -58,8 +58,7 @@ let pageCreated = false
 
 // What's currently on the glasses' now-playing screen, to update only what changed.
 let shownLayout: Layout | null = null
-let shownHead = ''
-let shownFoot = ''
+let shown: Parts = { now: '' }
 
 // Glance mode: hide the now-playing screen after a few quiet seconds.
 let hidden = false
@@ -105,9 +104,8 @@ function statusLine(p: PlayerState | null): string {
     if (p.shuffle) bits.push('Shuffle')
     if (p.repeat === 'context') bits.push('Repeat')
     if (p.repeat === 'track') bits.push('Repeat one')
-    if (p.device) bits.push(clip(p.device.name, 22) + (p.device.volume !== null ? ` ${p.device.volume}%` : ''))
   }
-  return bits.join('  ·  ')
+  return bits.join(' · ')
 }
 
 function notice(): string {
@@ -156,55 +154,75 @@ function desiredLayout(): Layout {
   return 'single'
 }
 
+/** Text for each box on the now-playing screen: `now` always; `info` and `bar` in the cover layout. */
+interface Parts { now: string; info?: string; bar?: string }
+
+/** Rough pixel width of a time like "12:34" or "-1:02:05" in the glasses font. */
+const timePx = (s: string) => [...s].reduce((w, c) => w + (c === ':' ? 5 : c === '-' ? 8 : 11), 0)
+
 /**
- * The now-playing screen as two parts: `head` (song info) and `foot` (progress,
- * status, notices). The single layout stacks them in one text box; the cover
- * layout puts the head beside the cover and the foot underneath.
+ * "1:41  ━━━━━━━──────  5:54", sized to fit `widthPx`. The length is worked out
+ * from the song's duration so the bar doesn't change size partway through.
  */
-function nowContent(layout: Layout): { head: string; foot: string } {
-  if (layout === 'hidden') return { head: '', foot: '' }
+function progressLine(p: PlayerState, widthPx: number, maxChars: number): string {
+  const pos = progressMs()
+  const longest = mmss(p.durationMs)
+  const room = widthPx - 2 * timePx(longest) - (prefs.timeLeft ? 8 : 0) - 40
+  const chars = Math.max(6, Math.min(maxChars, Math.floor(room / BAR_CHAR_PX)))
+  const filled = p.durationMs ? Math.round((pos / p.durationMs) * chars) : 0
+  const right = prefs.timeLeft ? `-${mmss(Math.max(0, p.durationMs - pos))}` : longest
+  return `${mmss(pos)}  ${'\u2501'.repeat(filled)}${'\u2500'.repeat(chars - filled)}  ${right}`
+}
+
+/** Lyrics and the "Next:" preview, shown full-width under the progress bar. */
+function bottomLines(): string[] {
+  const block = lyricBlock(88, 44) ?? []
+  const next = prefs.showNext && nextUp ? `Next: ${nextUp}` : ''
+  return [...block, next].filter(Boolean)
+}
+
+function nowContent(layout: Layout): Parts {
+  if (layout === 'hidden') return { now: ' ' }
   const note = notice()
   const p = player
 
-  if (status) return { head: status, foot: [statusLine(null), note].filter(Boolean).join('\n') }
+  if (status) return { now: [status, '', statusLine(null), note].join('\n').trimEnd() }
   if (!p) {
-    return {
-      head: 'Nothing playing\n\nTap to resume on your last device,\nor double-tap to pick something.',
-      foot: [statusLine(null), note].filter(Boolean).join('\n'),
-    }
+    return { now: ['Nothing playing', '', 'Tap to resume on your last device,', 'or double-tap to pick something.', '', note || statusLine(null)].join('\n').trimEnd() }
   }
-  if (p.kind === 'ad') return { head: 'Advertisement\nYour music will resume after this.', foot: [statusLine(p), note].join('\n') }
+  if (p.kind === 'ad') return { now: ['Advertisement', 'Your music will resume after this.', '', note || statusLine(p)].join('\n').trimEnd() }
   if (p.kind === 'unknown') {
-    return { head: `Ready on ${clip(p.device?.name ?? 'your device', 30)}\nTap to play, double-tap for the menu.`, foot: [statusLine(p), note].join('\n') }
+    return { now: [`Ready on ${clip(p.device?.name ?? 'your device', 30)}`, 'Tap to play, double-tap for the menu.', '', note || statusLine(p)].join('\n').trimEnd() }
   }
 
-  const pos = progressMs()
-  const filled = p.durationMs ? Math.round((pos / p.durationMs) * BAR_CHARS) : 0
-  const bar = '━'.repeat(filled) + '─'.repeat(BAR_CHARS - filled)
-  const right = prefs.timeLeft ? `-${mmss(Math.max(0, p.durationMs - pos))}` : mmss(p.durationMs)
-  const icon = p.isPlaying ? '▶' : 'II'
+  const icon = p.isPlaying ? '\u25B6' : 'II'
   const from = contextName && p.contextUri !== p.album?.uri ? `from ${contextName}` : ''
-  const next = prefs.showNext && nextUp ? `Next: ${nextUp}` : ''
-  const foot = [`${mmss(pos)}  ${bar}  ${right}`, statusLine(p), note || next].join('\n').trimEnd()
+  // Notices ("Next >>", "Lyrics on", errors) briefly take the status line's place,
+  // so they never push the progress bar or lyrics around.
+  const statusOrNote = note || statusLine(p)
+  const bottom = bottomLines()
 
   if (layout === 'art') {
-    // ~30 characters fit beside a 144 px cover.
-    const block = lyricBlock(58, 28)
-    if (block) return { head: [`${icon}  ${clip(p.title, 26) || 'Untitled'}`, clip(p.artists, 30), ...block].join('\n').trimEnd(), foot }
-    const head = [
-      `${icon}  ${clip(p.title, 26) || 'Untitled'}`,
-      clip(p.artists, 30),
-      p.kind === 'track' ? clip(p.album?.name ?? '', 30) : '',
-      clip(from, 30),
-    ].join('\n').trimEnd()
-    return { head, foot }
+    // Beside the 144 px cover: four lines of info, then the progress bar level
+    // with the cover's bottom edge. Lyrics run full-width underneath.
+    const third = from || (p.kind === 'track' ? p.album?.name ?? '' : '')
+    return {
+      info: [`${icon}  ${clip(p.title, 26) || 'Untitled'}`, clip(p.artists, 30), clip(third, 30), clip(statusOrNote, 30)].join('\n'),
+      bar: progressLine(p, W - ART_TEXT_X - 12, 14),
+      now: bottom.join('\n') || ' ',
+    }
   }
 
-  const subtitle = p.kind === 'episode' ? p.artists : [p.artists, p.album?.name].filter(Boolean).join(' · ')
-  const block = lyricBlock(88, 44)
+  const subtitle = p.kind === 'episode' ? p.artists : [p.artists, p.album?.name].filter(Boolean).join(' \u00B7 ')
   return {
-    head: [`${icon}  ${clip(p.title, 34) || 'Untitled'}`, clip(subtitle, 46), ...(block ?? [clip(from, 46)])].join('\n'),
-    foot,
+    now: [
+      `${icon}  ${clip(p.title, 34) || 'Untitled'}`,
+      clip(subtitle, 46),
+      clip(from, 46),
+      clip(statusOrNote, 46),
+      progressLine(p, W - 2 * 16, 20),
+      ...bottom,
+    ].join('\n').trimEnd(),
   }
 }
 
@@ -236,22 +254,34 @@ function textBox(id: number, name: string, x: number, y: number, w: number, h: n
   })
 }
 
-function nowPage(layout: Layout, { head, foot }: { head: string; foot: string }): PageConfig {
+// Cover layout geometry (measured in the simulator). The cover sits at (12, 12)
+// and is 144 px square, so its bottom edge is y = 155. Text glyphs sit about
+// 21 px below the top of their line, so a bar box starting at y = 133 puts the
+// bar's numbers level with the cover's bottom edge.
+const ART_TEXT_X = 164
+const BAR_Y = 133
+const BOTTOM_Y = 161
+
+function nowPage(layout: Layout, parts: Parts): PageConfig {
   if (layout === 'hidden') {
     // An empty text box that still catches taps and swipes.
     return { containerTotalNum: 1, textObject: [textBox(1, 'now', 0, 0, W, H, ' ', true)] }
   }
   if (layout === 'art') {
     return {
-      containerTotalNum: 3,
+      containerTotalNum: 4,
       imageObject: [new ImageContainerProperty({ xPosition: 12, yPosition: 12, width: ART_SIZE, height: ART_SIZE, containerID: 3, containerName: 'art' })],
       textObject: [
-        textBox(2, 'info', 164, 8, W - 164, 156, head, false, 8),
-        textBox(1, 'now', 0, 168, W, H - 168, foot, true, 12),
+        // Four lines need 108 px plus padding; any less and the firmware adds a scrollbar.
+        textBox(2, 'info', ART_TEXT_X, 2, W - ART_TEXT_X, BAR_Y - 2, parts.info ?? ' ', false, 6),
+        // No padding here (it would push the bar down), so shift right 6 px to match the info text's padding.
+        textBox(4, 'bar', ART_TEXT_X + 6, BAR_Y, W - ART_TEXT_X - 6, BOTTOM_Y - BAR_Y, parts.bar ?? ' ', false, 0),
+        // x = 8 plus 4 px padding lines the lyrics up with the cover's left edge.
+        textBox(1, 'now', 8, BOTTOM_Y, W - 8, H - BOTTOM_Y, parts.now, true, 4),
       ],
     }
   }
-  return { containerTotalNum: 1, textObject: [textBox(1, 'now', 0, 0, W, H, `${head}\n${foot}`, true)] }
+  return { containerTotalNum: 1, textObject: [textBox(1, 'now', 0, 0, W, H, parts.now, true)] }
 }
 
 function listPage(view: View): PageConfig {
@@ -295,8 +325,9 @@ async function rebuild(page: PageConfig): Promise<boolean> {
   return false
 }
 
-const logNow = (layout: Layout, c: { head: string; foot: string }) =>
-  debug('now', JSON.stringify(layout === 'hidden' ? '' : `${c.head}\n${c.foot}`))
+/** One string for the debug log, top to bottom, as the tests read it. */
+const logNow = (layout: Layout, c: Parts) =>
+  debug('now', JSON.stringify(layout === 'hidden' ? '' : [c.info, c.bar, c.now].filter(t => t !== undefined).join('\n').trimEnd()))
 
 async function render(): Promise<void> {
   const view = stack[stack.length - 1]
@@ -309,8 +340,7 @@ async function render(): Promise<void> {
   const layout = desiredLayout()
   const content = nowContent(layout)
   shownLayout = layout
-  shownHead = content.head
-  shownFoot = content.foot
+  shown = content
   artShownUrl = ''   // a rebuild clears the image box
   debug('layout', layout)
   logNow(layout, content)
@@ -349,31 +379,16 @@ async function updateNowOnce(): Promise<void> {
   if (layout === 'hidden') return
 
   const content = nowContent(layout)
-  const upgrade = (id: number, name: string, text: string) =>
-    serial(b => b.textContainerUpgrade(new TextContainerUpgrade({ containerID: id, containerName: name, content: text }))).catch(() => false)
-
-  if (layout === 'single') {
-    const text = `${content.head}\n${content.foot}`
-    if (text === `${shownHead}\n${shownFoot}`) return
-    shownHead = content.head
-    shownFoot = content.foot
-    logNow(layout, content)
-    if (!(await upgrade(1, 'now', text))) shownHead = shownFoot = ''   // retry next tick
-    return
+  const boxes: [keyof Parts, number][] = layout === 'art' ? [['info', 2], ['bar', 4], ['now', 1]] : [['now', 1]]
+  const changed = boxes.filter(([key]) => content[key] !== shown[key])
+  if (changed.length) logNow(layout, content)
+  for (const [key, id] of changed) {
+    const text = content[key] ?? ' '
+    shown = { ...shown, [key]: text }
+    const ok = await serial(b => b.textContainerUpgrade(new TextContainerUpgrade({ containerID: id, containerName: key, content: text }))).catch(() => false)
+    if (!ok) shown = { ...shown, [key]: undefined }   // retry on the next tick
   }
-
-  const headChanged = content.head !== shownHead
-  const footChanged = content.foot !== shownFoot
-  if (headChanged || footChanged) logNow(layout, content)
-  if (headChanged) {
-    shownHead = content.head
-    if (!(await upgrade(2, 'info', content.head))) shownHead = ''
-  }
-  if (footChanged) {
-    shownFoot = content.foot
-    if (!(await upgrade(1, 'now', content.foot))) shownFoot = ''
-  }
-  if (player?.artUrl !== artShownUrl) void sendArt()
+  if (layout === 'art' && player?.artUrl !== artShownUrl) void sendArt()
 }
 
 /** Downloads the current song's cover in the background, then refreshes the screen. */

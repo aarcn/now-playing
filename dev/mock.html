@@ -16,7 +16,10 @@
       await bridge.setLocalStorage('refresh_token', 'rt-0')
       await bridge.setLocalStorage('swipe_next', 'down')
 
-      const scenario = new URLSearchParams(location.search).get('scenario') ?? 'default'
+      const query = new URLSearchParams(location.search)
+      const scenario = query.get('scenario') ?? 'default'
+      // ?prefs={"albumArt":true,...} previews any combination of settings.
+      if (query.get('prefs')) await bridge.setLocalStorage('prefs_v1', query.get('prefs'))
       console.log('[mock] scenario', scenario)
 
       if (scenario === 'faults') {

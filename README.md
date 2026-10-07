@@ -11,7 +11,7 @@ Spotify for the Even Realities G2: what's playing at a glance, gestures for the 
 | Swipe up | Restart the song, or go to the previous one if you're in the first 5 seconds |
 | Double-tap | Open the menu; double-tap again to go back a level |
 
-The now-playing screen shows the song, artist and album, the playlist or album it's playing from, a progress bar, and whether it's liked, shuffle/repeat state, and the device and its volume.
+The now-playing screen shows the song, artist and album, the playlist or album it's playing from, whether it's liked, shuffle/repeat state, and the progress bar, with lyrics (or the next-song preview) underneath. With the album cover on, the info and progress bar sit beside the cover, the bar level with its bottom edge, and the lyrics run full-width below. Which device is playing is in the menu, not on the screen.
 
 **Menu**
 

@@ -100,11 +100,13 @@ async function backHome() {
 
 // ---------------------------------------------------------------------------
 async function defaultScenario() {
-  await step('startup shows song, context, like and device', async () => {
+  await step('startup shows song, context and like, without the device name', async () => {
     const t = await waitFor(() => /from Chill Vibes/.test(lastNow()) && lastNow().includes('♥') && lastNow())
     assert(t, `now text was ${JSON.stringify(lastNow())}`)
     assert(t.startsWith('▶  Bohemian Rhapsody'), 'title line')
-    assert(t.includes("Aaron's iPhone"), 'curly apostrophe in device name should become ASCII')
+    assert(!t.includes('iPhone'), 'device name should not be on the now-playing screen')
+    const lines = t.split('\n')
+    assert(/^\d+:\d\d  [━─]+  \d+:\d\d$/.test(lines[4]), `progress bar should be line 5 (under the status line): ${JSON.stringify(lines)}`)
     await shot('01-now')
   })
 
@@ -150,6 +152,7 @@ async function defaultScenario() {
     const v = await waitView('Menu')
     const want = ['Library', 'Up next', '♥ Liked', 'Shuffle: Off', 'Repeat: Off', 'Volume: set on', 'Seek', 'Device:', 'Album:', 'Artist:', 'Exit']
     for (const w of want) assert(v.rows.some(r => r.startsWith(w)), `missing "${w}" in ${JSON.stringify(v.rows)}`)
+    assert(v.rows.includes("Device: Aaron's iPhone  >"), 'device lives in the menu, with the curly apostrophe made ASCII')
     await shot('03-menu')
   })
 
@@ -157,7 +160,7 @@ async function defaultScenario() {
     const m = mark()
     await select('Shuffle: Off')
     assert(await waitFor(() => api(m).includes('PUT /me/player/shuffle?state=true')), `calls: ${api(m)}`)
-    assert(await waitFor(() => /Shuffle  ·/.test(lastNow())), `now: ${JSON.stringify(lastNow())}`)
+    assert(await waitFor(() => /(^| \u00B7 )Shuffle( \u00B7 |$)/m.test(lastNow())), `now: ${JSON.stringify(lastNow())}`)
   })
 
   await step('repeat cycles off -> all', async () => {
@@ -257,14 +260,17 @@ async function defaultScenario() {
     const m = mark()
     await select(/MacBook/)
     assert(await waitFor(() => api(m).includes('PUT /me/player')), `calls: ${api(m)}`)
-    assert(await waitFor(() => lastNow().includes('MacBook Pro 50%')), `now: ${lastNow()}`)
-    await input('double_click'); await waitView('Menu')
+    assert(await waitFor(() => nows(m).some(t => t.includes('Playing on MacBook Pro'))), 'confirmation')
+    await sleep(2000)
+    await input('double_click')
+    const menu = await waitView('Menu')
+    assert(menu.rows.includes('Device: MacBook Pro  >') && menu.rows.includes('Volume: 50%  >'), JSON.stringify(menu.rows))
     await select('Volume: 50%')
     await waitView('Volume')
     const m2 = mark()
     await select('Louder')
     assert(await waitFor(() => api(m2).includes('PUT /me/player/volume?volume_percent=60')), `calls: ${api(m2)}`)
-    assert(await waitFor(() => lastNow().includes('MacBook Pro 60%')), `now: ${lastNow()}`)
+    assert(await waitFor(() => nows(m2).some(t => t.includes('Volume 60%'))), 'confirmation')
   })
 
   await step('seek forward 30 s', async () => {
@@ -430,7 +436,7 @@ async function settingsScenario() {
     const t = await waitFor(() => nows(0).find(n => n.includes('Next: Redbone')))
     assert(t, `now: ${JSON.stringify(lastNow())}`)
     assert(/  -\d+:\d\d/.test(t), 'time left (-m:ss) missing')
-    assert(/\d{1,2}:\d{2}(\s?[AP]M)?  \u00B7/.test(t), `clock missing: ${JSON.stringify(t)}`)
+    assert(/\d{1,2}:\d{2}(\s?[AP]M)? \u00B7 /.test(t), `clock missing: ${JSON.stringify(t)}`)
   })
 
   await step('glance mode hides the screen after 5 quiet seconds', async () => {
