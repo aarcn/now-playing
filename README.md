@@ -11,7 +11,7 @@ Spotify for the Even Realities G2: what's playing at a glance, gestures for the 
 | Swipe up | Restart the song, or go to the previous one if you're in the first 5 seconds |
 | Double-tap | Open the menu; double-tap again to go back a level |
 
-The now-playing screen shows the song, artist and album, the playlist or album it's playing from, whether it's liked, shuffle/repeat state, and the progress bar, with lyrics (or the next-song preview) underneath. With the album cover on, the info and progress bar sit beside the cover, the bar level with its bottom edge, and the lyrics run full-width below. Which device is playing is in the menu, not on the screen.
+The now-playing screen shows the song and artist, a status line (clock, ♥ if the song is in your Liked Songs, shuffle/repeat), the progress bar, and "Next:" with the song after this one, then up to three lines of lyrics when they're on. With the album cover on, the song details, progress bar and "Next:" sit beside the cover ("Next:" level with its bottom edge) and the lyrics run full-width below. The playing device is in the menu, not on the screen.
 
 **Menu**
 
@@ -38,7 +38,6 @@ The now-playing screen shows the song, artist and album, the playlist or album i
 | Tap on the left arm / right arm | Play/pause, next, previous, like/unlike, or open the menu, set separately per arm |
 | Album cover | Shows the cover beside the song |
 | Lyrics | Time-synced lyrics on the now-playing screen (also toggled from the glasses menu) |
-| Next song preview | A "Next:" line with what plays after this |
 | Clock | Time of day in the status line |
 | Right side of the progress bar | Song length or time left |
 | Glance mode | Off, or hide the screen after 5/10/30 s; it comes back on song changes or a touch (a tap while hidden only wakes it) |

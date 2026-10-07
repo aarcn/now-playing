@@ -17,7 +17,7 @@ import { serial } from './bridge'
 import { NotLoggedIn } from './auth'
 import * as spotify from './spotify'
 import type { Album, ContextRef, Page, Playlist, PlayerState, Track } from './spotify'
-import { clip, label, mmss } from './text'
+import { clip, clipPx, label, mmss } from './text'
 import { prefs, onPrefsChange, savePrefs, type SwipeDir, type TapAction } from './prefs'
 import { ART_SIZE, cachedArt, loadArt } from './art'
 import { getLyrics, lineAt, type Lyrics } from './lyrics'
@@ -39,14 +39,14 @@ const debug = import.meta.env.DEV ? (...args: unknown[]) => console.debug('[np]'
 // ---------- State ----------
 interface Row { label: string; run?: () => Promise<void> }   // no run = an inert note
 interface View { title: string; rows: Row[] }
-type Layout = 'single' | 'art' | 'hidden'
+type Layout = 'message' | 'single' | 'art' | 'hidden'
 
 const stack: View[] = []      // empty = the now-playing screen
 let player: PlayerState | null = null
 let syncedAt = 0              // when `player` was fetched, for local progress
 let saved: boolean | null = null
-let contextName = ''
 let nextUp = ''
+let nextUpAt = 0              // when nextUp was fetched; refreshed now and then in case the queue changed
 let status = 'Connecting to Spotify...'
 let failures = 0
 let flash = ''
@@ -117,21 +117,24 @@ function notice(): string {
 const isMedia = (p: PlayerState | null): p is PlayerState => !!p && (p.kind === 'track' || p.kind === 'episode')
 
 /**
- * The two lyric lines for the screen: the line being sung (allowed to wrap to
- * two lines) and the one after it. Null when lyrics are off or not a song.
+ * Three lyric lines: the line being sung (allowed to wrap to two lines) and the
+ * two after it. Null when lyrics are off or this isn't a song.
  */
-function lyricBlock(currentMax: number, nextMax: number): string[] | null {
+function lyricBlock(): string[] | null {
   if (!prefs.lyrics || player?.kind !== 'track') return null
   // The glasses font has no music-note symbol, so messages are in parentheses.
-  if (lyrics === null || lyrics === 'loading') return ['(finding lyrics...)', '']
-  if (lyrics === 'error') return ['(couldn\'t load lyrics)', '']
-  if (lyrics.kind === 'none') return ['(no lyrics found)', '']
-  if (lyrics.kind === 'plain') return ['(lyrics aren\'t timed for this song)', '']
-  if (lyrics.kind === 'instrumental') return ['(instrumental)', '']
+  if (lyrics === null || lyrics === 'loading') return ['(finding lyrics...)']
+  if (lyrics === 'error') return ['(couldn\'t load lyrics)']
+  if (lyrics.kind === 'none') return ['(no lyrics found)']
+  if (lyrics.kind === 'plain') return ['(lyrics aren\'t timed for this song)']
+  if (lyrics.kind === 'instrumental') return ['(instrumental)']
   const i = lineAt(lyrics.lines, progressMs() + LYRIC_LEAD_MS)
   const current = i >= 0 ? lyrics.lines[i].text : ''
-  const next = lyrics.lines[i + 1]?.text ?? ''
-  return [`> ${clip(current, currentMax) || '...'}`, next ? `  ${clip(next, nextMax)}` : '']
+  const upcoming = [lyrics.lines[i + 1]?.text, lyrics.lines[i + 2]?.text]
+    .filter((t): t is string => t !== undefined)
+    .map(t => `  ${clipPx(t, LINE_PX - 16)}`)
+  // The current line may wrap onto a second line; the upcoming ones stay on one.
+  return [`> ${clipPx(current, 2 * LINE_PX - 80) || '...'}`, ...upcoming]
 }
 
 /** Redraws exactly when the next lyric line starts, instead of waiting for the 1 s tick. */
@@ -149,12 +152,17 @@ function desiredLayout(): Layout {
   const p = player
   // Switch to the cover layout only once a cover is downloaded (no empty box),
   // but stay in it while the next song's cover loads (no flicker between songs).
-  const artUsable = prefs.albumArt && !status && isMedia(p) && !!p.artUrl && artLoadFailures < 3 && !artFailed.has(p.artUrl)
+  if (status || !isMedia(p)) return 'message'
+  const artUsable = prefs.albumArt && !!p.artUrl && artLoadFailures < 3 && !artFailed.has(p.artUrl)
   if (artUsable && (cachedArt(p.artUrl) || shownLayout === 'art')) return 'art'
   return 'single'
 }
 
-/** Text for each box on the now-playing screen: `now` always; `info` and `bar` in the cover layout. */
+/**
+ * Text for each box on the now-playing screen. `now` is always there and catches
+ * taps and swipes (it holds the lyrics); `info` is the song details; `bar` is the
+ * progress bar and "Next:" line beside the cover.
+ */
 interface Parts { now: string; info?: string; bar?: string }
 
 /** Rough pixel width of a time like "12:34" or "-1:02:05" in the glasses font. */
@@ -174,11 +182,8 @@ function progressLine(p: PlayerState, widthPx: number, maxChars: number): string
   return `${mmss(pos)}  ${'\u2501'.repeat(filled)}${'\u2500'.repeat(chars - filled)}  ${right}`
 }
 
-/** Lyrics and the "Next:" preview, shown full-width under the progress bar. */
-function bottomLines(): string[] {
-  const block = lyricBlock(88, 44) ?? []
-  const next = prefs.showNext && nextUp ? `Next: ${nextUp}` : ''
-  return [...block, next].filter(Boolean)
+function nextLine(): string {
+  return `Next: ${nextUp || '...'}`
 }
 
 function nowContent(layout: Layout): Parts {
@@ -186,43 +191,41 @@ function nowContent(layout: Layout): Parts {
   const note = notice()
   const p = player
 
-  if (status) return { now: [status, '', statusLine(null), note].join('\n').trimEnd() }
-  if (!p) {
-    return { now: ['Nothing playing', '', 'Tap to resume on your last device,', 'or double-tap to pick something.', '', note || statusLine(null)].join('\n').trimEnd() }
-  }
-  if (p.kind === 'ad') return { now: ['Advertisement', 'Your music will resume after this.', '', note || statusLine(p)].join('\n').trimEnd() }
-  if (p.kind === 'unknown') {
+  if (layout === 'message' || !isMedia(p)) {
+    if (status) return { now: [status, '', statusLine(null), note].join('\n').trimEnd() }
+    if (!p) {
+      return { now: ['Nothing playing', '', 'Tap to resume on your last device,', 'or double-tap to pick something.', '', note || statusLine(null)].join('\n').trimEnd() }
+    }
+    if (p.kind === 'ad') return { now: ['Advertisement', 'Your music will resume after this.', '', note || statusLine(p)].join('\n').trimEnd() }
     return { now: [`Ready on ${clip(p.device?.name ?? 'your device', 30)}`, 'Tap to play, double-tap for the menu.', '', note || statusLine(p)].join('\n').trimEnd() }
   }
 
   const icon = p.isPlaying ? '\u25B6' : 'II'
-  const from = contextName && p.contextUri !== p.album?.uri ? `from ${contextName}` : ''
   // Notices ("Next >>", "Lyrics on", errors) briefly take the status line's place,
   // so they never push the progress bar or lyrics around.
   const statusOrNote = note || statusLine(p)
-  const bottom = bottomLines()
+  const lyricText = (lyricBlock() ?? []).join('\n') || ' '
 
   if (layout === 'art') {
-    // Beside the 144 px cover: four lines of info, then the progress bar level
-    // with the cover's bottom edge. Lyrics run full-width underneath.
-    const third = from || (p.kind === 'track' ? p.album?.name ?? '' : '')
+    // Beside the 144 px cover: title, artist and status, then the progress bar
+    // and "Next:", with "Next:" level with the cover's bottom edge.
     return {
-      info: [`${icon}  ${clip(p.title, 26) || 'Untitled'}`, clip(p.artists, 30), clip(third, 30), clip(statusOrNote, 30)].join('\n'),
-      bar: progressLine(p, W - ART_TEXT_X - 12, 14),
-      now: bottom.join('\n') || ' ',
+      info: [`${icon}  ${clipPx(p.title, ART_LINE_PX - 30) || 'Untitled'}`, clipPx(p.artists, ART_LINE_PX), clipPx(statusOrNote, ART_LINE_PX)].join('\n'),
+      bar: [progressLine(p, ART_LINE_PX, 14), clipPx(nextLine(), ART_LINE_PX)].join('\n'),
+      now: lyricText,
     }
   }
 
   const subtitle = p.kind === 'episode' ? p.artists : [p.artists, p.album?.name].filter(Boolean).join(' \u00B7 ')
   return {
-    now: [
-      `${icon}  ${clip(p.title, 34) || 'Untitled'}`,
-      clip(subtitle, 46),
-      clip(from, 46),
-      clip(statusOrNote, 46),
-      progressLine(p, W - 2 * 16, 20),
-      ...bottom,
-    ].join('\n').trimEnd(),
+    info: [
+      `${icon}  ${clipPx(p.title, LINE_PX - 30) || 'Untitled'}`,
+      clipPx(subtitle, LINE_PX),
+      clipPx(statusOrNote, LINE_PX),
+      progressLine(p, LINE_PX, 20),
+      clipPx(nextLine(), LINE_PX),
+    ].join('\n'),
+    now: lyricText,
   }
 }
 
@@ -254,34 +257,45 @@ function textBox(id: number, name: string, x: number, y: number, w: number, h: n
   })
 }
 
-// Cover layout geometry (measured in the simulator). The cover sits at (12, 12)
-// and is 144 px square, so its bottom edge is y = 155. Text glyphs sit about
-// 21 px below the top of their line, so a bar box starting at y = 133 puts the
-// bar's numbers level with the cover's bottom edge.
+// Geometry, measured in the simulator: text lines are 27 px apart and a line's
+// glyphs sit about 5-21 px below its top. The cover is at (12, 12), 144 px
+// square, so its bottom edge is y = 155.
 const ART_TEXT_X = 164
-const BAR_Y = 133
-const BOTTOM_Y = 161
+const LINE_PX = W - 2 * 16                  // usable text width, full-width lines
+const ART_LINE_PX = W - ART_TEXT_X - 6 - 8   // usable text width beside the cover
+const ART_BAR_Y = 106         // progress bar, then "Next:" one line lower, level with the cover's bottom
+const ART_LYRICS_Y = 170
+const TEXT_LYRICS_Y = 164     // about a line's gap below "Next:" in the text-only layout
 
 function nowPage(layout: Layout, parts: Parts): PageConfig {
   if (layout === 'hidden') {
     // An empty text box that still catches taps and swipes.
     return { containerTotalNum: 1, textObject: [textBox(1, 'now', 0, 0, W, H, ' ', true)] }
   }
+  if (layout === 'message') {
+    return { containerTotalNum: 1, textObject: [textBox(1, 'now', 0, 0, W, H, parts.now, true)] }
+  }
   if (layout === 'art') {
     return {
       containerTotalNum: 4,
       imageObject: [new ImageContainerProperty({ xPosition: 12, yPosition: 12, width: ART_SIZE, height: ART_SIZE, containerID: 3, containerName: 'art' })],
       textObject: [
-        // Four lines need 108 px plus padding; any less and the firmware adds a scrollbar.
-        textBox(2, 'info', ART_TEXT_X, 2, W - ART_TEXT_X, BAR_Y - 2, parts.info ?? ' ', false, 6),
-        // No padding here (it would push the bar down), so shift right 6 px to match the info text's padding.
-        textBox(4, 'bar', ART_TEXT_X + 6, BAR_Y, W - ART_TEXT_X - 6, BOTTOM_Y - BAR_Y, parts.bar ?? ' ', false, 0),
+        textBox(2, 'info', ART_TEXT_X, 2, W - ART_TEXT_X, ART_BAR_Y - 2, parts.info ?? ' ', false, 6),
+        // No padding (it would push the lines down), so shift right 6 px to match the info text.
+        textBox(4, 'bar', ART_TEXT_X + 6, ART_BAR_Y, W - ART_TEXT_X - 6, 56, parts.bar ?? ' ', false, 0),
         // x = 8 plus 4 px padding lines the lyrics up with the cover's left edge.
-        textBox(1, 'now', 8, BOTTOM_Y, W - 8, H - BOTTOM_Y, parts.now, true, 4),
+        textBox(1, 'now', 8, ART_LYRICS_Y, W - 8, H - ART_LYRICS_Y, parts.now, true, 4),
       ],
     }
   }
-  return { containerTotalNum: 1, textObject: [textBox(1, 'now', 0, 0, W, H, parts.now, true)] }
+  return {
+    containerTotalNum: 2,
+    textObject: [
+      // Five lines need 135 px plus padding; any less and the firmware adds a scrollbar.
+      textBox(2, 'info', 4, 4, W - 4, TEXT_LYRICS_Y - 4, parts.info ?? ' ', false, 12),
+      textBox(1, 'now', 12, TEXT_LYRICS_Y, W - 12, H - TEXT_LYRICS_Y, parts.now, true, 4),
+    ],
+  }
 }
 
 function listPage(view: View): PageConfig {
@@ -379,7 +393,10 @@ async function updateNowOnce(): Promise<void> {
   if (layout === 'hidden') return
 
   const content = nowContent(layout)
-  const boxes: [keyof Parts, number][] = layout === 'art' ? [['info', 2], ['bar', 4], ['now', 1]] : [['now', 1]]
+  const boxes: [keyof Parts, number][] =
+    layout === 'art' ? [['info', 2], ['bar', 4], ['now', 1]]
+    : layout === 'single' ? [['info', 2], ['now', 1]]
+    : [['now', 1]]
   const changed = boxes.filter(([key]) => content[key] !== shown[key])
   if (changed.length) logNow(layout, content)
   for (const [key, id] of changed) {
@@ -624,7 +641,7 @@ function menuView(): View {
       run: () => homeThen(command(() => spotify.setShuffle(shuffleTo), {
         done: `Shuffle ${shuffleTo ? 'on' : 'off'}`,
         optimistic: () => { if (player) player.shuffle = shuffleTo },
-      }).then(loadNextUp)),
+      }).then(() => loadNextUp())),
     })
 
     const nextRepeat: Record<spotify.Repeat, spotify.Repeat> = { off: 'context', context: 'track', track: 'off' }
@@ -939,7 +956,6 @@ async function refresh(): Promise<void> {
     if (epoch !== commandEpoch || Date.now() < holdUntil) return   // stale: a command ran meanwhile
 
     const trackChanged = next?.uri !== player?.uri
-    const contextChanged = next?.contextUri !== player?.contextUri
     const playStateChanged = next?.isPlaying !== player?.isPlaying
     player = next
     syncedAt = Date.now()
@@ -947,7 +963,7 @@ async function refresh(): Promise<void> {
     failures = 0
 
     if (trackChanged) { loadSaved(); loadNextUp(); prefetchArt(); loadLyrics() }
-    if (contextChanged) loadContextName()
+    else if (Date.now() - nextUpAt > 30_000) loadNextUp(false)   // the queue may have changed elsewhere
     if (trackChanged || playStateChanged) wake()
   } catch (e) {
     if (e instanceof NotLoggedIn) {
@@ -973,25 +989,17 @@ function loadSaved() {
     .catch(() => {})   // missing scope after an update: just hide the heart
 }
 
-function loadContextName() {
-  contextName = ''
-  const uri = player?.contextUri
-  if (!uri) return
-  spotify.getContextName(uri)
-    .then(name => { if (player?.contextUri === uri) { contextName = name; void updateNow() } })
-    .catch(() => {})
-}
-
-/** Fetches the song after this one for the "Next:" line (only when that's switched on). */
-function loadNextUp() {
-  nextUp = ''
-  if (!prefs.showNext || !isMedia(player)) return
+/** Fetches the song after this one for the "Next:" line. */
+function loadNextUp(clear = true) {
+  if (clear) nextUp = ''
+  nextUpAt = Date.now()
+  if (!isMedia(player)) return
   const uri = player.uri
   spotify.getQueue()
     .then(queue => {
       if (player?.uri !== uri) return
       const n = queue[0]
-      nextUp = n ? clip(n.subtitle ? `${n.title} · ${n.subtitle}` : n.title, 40) : ''
+      nextUp = n ? clip(n.subtitle ? `${n.title} \u00B7 ${n.subtitle}` : n.title, 40) : 'nothing queued'
       void updateNow()
     })
     .catch(() => {})
@@ -1020,7 +1028,6 @@ export function refreshNow() {
 
 // ---------- Settings changes from the phone ----------
 onPrefsChange(changed => {
-  if ('showNext' in changed) loadNextUp()
   if ('lyrics' in changed) loadLyrics()
   if ('glanceSeconds' in changed) { hidden = false; wakeUntil = Date.now() + prefs.glanceSeconds * 1000 }
   if ('albumArt' in changed) { artFailed.clear(); artLoadFailures = 0; prefetchArt() }

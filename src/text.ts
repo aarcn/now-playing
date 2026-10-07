@@ -45,6 +45,32 @@ export function clip(input: string, max: number, maxBytes = Infinity): string {
   return s.trimEnd() + '...'
 }
 
+/**
+ * Rough rendered width in pixels in the glasses' proportional font, calibrated
+ * against simulator screenshots (it errs a little wide). Good enough to keep a
+ * line from wrapping.
+ */
+export function approxPx(s: string): number {
+  let w = 0
+  for (const ch of s) {
+    if (WIDE.test(ch)) w += 22
+    else if (/[MWmw@%]/.test(ch)) w += 15
+    else if (/[A-Z0-9#&?]/.test(ch)) w += 12
+    else if (/[ilIj.,:;'!|]/.test(ch)) w += 5
+    else if (ch === ' ') w += 6
+    else w += 10
+  }
+  return w
+}
+
+/** Like `clip`, but by estimated pixel width: use it for lines that must not wrap. */
+export function clipPx(input: string, maxPx: number): string {
+  let s = glassesText(input)
+  if (approxPx(s) <= maxPx) return s
+  while (s.length && approxPx(s + '...') > maxPx) s = Array.from(s).slice(0, -1).join('')
+  return s.trimEnd() + '...'
+}
+
 /** A cleaned label, with a fallback when nothing printable is left (e.g. an all-emoji name). */
 export function label(input: string | null | undefined, fallback: string, max = 42): string {
   const s = clip(input ?? '', max, 63)

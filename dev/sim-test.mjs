@@ -100,13 +100,15 @@ async function backHome() {
 
 // ---------------------------------------------------------------------------
 async function defaultScenario() {
-  await step('startup shows song, context and like, without the device name', async () => {
-    const t = await waitFor(() => /from Chill Vibes/.test(lastNow()) && lastNow().includes('♥') && lastNow())
+  await step('startup: song, artist, like, progress bar, then "Next:" (no device, no playlist)', async () => {
+    const t = await waitFor(() => lastNow().includes('♥') && lastNow().includes('Next: Redbone') && lastNow())
     assert(t, `now text was ${JSON.stringify(lastNow())}`)
-    assert(t.startsWith('▶  Bohemian Rhapsody'), 'title line')
-    assert(!t.includes('iPhone'), 'device name should not be on the now-playing screen')
     const lines = t.split('\n')
-    assert(/^\d+:\d\d  [━─]+  \d+:\d\d$/.test(lines[4]), `progress bar should be line 5 (under the status line): ${JSON.stringify(lines)}`)
+    assert(lines[0] === '▶  Bohemian Rhapsody', 'title line')
+    assert(lines[1] === 'Queen · A Night at the Opera', 'artist line')
+    assert(/^\d+:\d\d  [━─]+  \d+:\d\d$/.test(lines[3]), `progress bar should be line 4: ${JSON.stringify(lines)}`)
+    assert(lines[4] === 'Next: Redbone · Childish Gambino', `"Next:" right under the bar: ${JSON.stringify(lines)}`)
+    assert(!t.includes('iPhone') && !t.includes('Chill Vibes'), 'no device name or playlist on screen')
     await shot('01-now')
   })
 
@@ -391,12 +393,13 @@ async function faultsScenario() {
 
   await step('expired access token + rotated refresh token: recovers without logging out', async () => {
     await input('double_click'); await waitView('Menu')
+    await select('Library'); await waitView('Library')
     const m = mark()
-    await select('Up next')
-    await waitView('Up next', 8000)
+    await select('Artists')
+    await waitView('Artists', 8000)
     const tokenCalls = api(m).filter(c => c === 'POST /api/token').length
     assert(tokenCalls === 2, `expected a rejected and a successful refresh, got ${tokenCalls}: ${api(m)}`)
-    assert(api(m).filter(c => c === 'GET /me/player/queue').length === 2, 'queue retried after refresh')
+    assert(api(m).filter(c => c.startsWith('GET /me/following')).length === 2, 'request retried after refresh')
     await backHome()
     await sleep(3500); await poll()
     assert(!lastNow().startsWith('Not signed in'), 'user was logged out')
@@ -427,7 +430,8 @@ async function settingsScenario() {
   await step('cover layout: waits for the cover, then shows it beside the song', async () => {
     assert(await waitFor(() => log.some(e => e.message === '[np] art shown https://i.scdn.co/image/opera-300'), 8000), 'cover never shown')
     const layouts = log.filter(e => e.message.startsWith('[np] layout ')).map(e => e.message.slice(12))
-    assert(layouts[0] === 'single' && layouts[1] === 'art', `expected text first, then the cover once downloaded: ${layouts}`)
+    const media = layouts.filter(l => l !== 'message')   // 'message' = the "Connecting..." screen
+    assert(media[0] === 'single' && media[1] === 'art', `expected text first, then the cover once downloaded: ${layouts}`)
     if (layouts.at(-1) === 'art') await shot('01-cover')
   })
 
@@ -562,7 +566,9 @@ async function lyricsScenario() {
     assert(t, `no lyric line: ${JSON.stringify(lastNow())}`)
     const expected = Math.floor((elapsed(t) + 0.4) / 5) + 1   // lines every 5 s, shown 0.4 s early
     assert(Math.abs(lyricNum(t) - expected) <= 1, `line ${lyricNum(t)} at ${elapsed(t)} s, expected ~${expected}`)
-    assert(t.includes(`  Test lyric line ${lyricNum(t) + 1}`), 'next line missing')
+    assert(t.includes(`  Test lyric line ${lyricNum(t) + 1}`) && t.includes(`  Test lyric line ${lyricNum(t) + 2}`), 'should show the next two lines too')
+    const lines = t.split('\n')
+    assert(lines.indexOf(lines.find(l => l.startsWith('Next: '))) < lines.findIndex(l => l.startsWith('> ')), 'lyrics go below the progress bar and "Next:"')
     await shot('01-lyrics-cover')
   })
 

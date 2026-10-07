@@ -10,7 +10,6 @@ export interface Prefs {
   tapLeft: TapAction          // taps report which arm they came from (swipes don't)
   tapRight: TapAction
   albumArt: boolean
-  showNext: boolean           // "Next: ..." line on the now-playing screen
   showClock: boolean
   timeLeft: boolean           // show time remaining instead of the song's length
   lyrics: boolean             // time-synced lyrics from LRCLIB on the now-playing screen
@@ -24,7 +23,6 @@ export const DEFAULTS: Prefs = {
   tapLeft: 'playpause',
   tapRight: 'playpause',
   albumArt: false,
-  showNext: false,
   showClock: false,
   timeLeft: false,
   lyrics: false,

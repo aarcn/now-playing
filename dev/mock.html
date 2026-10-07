@@ -20,6 +20,8 @@
       const scenario = query.get('scenario') ?? 'default'
       // ?prefs={"albumArt":true,...} previews any combination of settings.
       if (query.get('prefs')) await bridge.setLocalStorage('prefs_v1', query.get('prefs'))
+      // ?track=N starts on the Nth song of the playlist (e.g. 5 = the very long title).
+      if (query.get('track')) mock.state.index = Number(query.get('track'))
       console.log('[mock] scenario', scenario)
 
       if (scenario === 'faults') {
@@ -27,7 +29,8 @@
         mock.fail('^GET /me/player\\?', { status: 429, headers: { 'Retry-After': '4' }, skip: 3 })
         mock.fail('^GET /me/playlists', { status: 502, body: '<html>Bad Gateway</html>' })
         mock.fail('^GET /me/player\\?', { offline: true, times: 3, skip: 8 })
-        mock.fail('^GET /me/player/queue', { status: 401, message: 'The access token expired' })
+        // On an endpoint only the user's own action reaches (the app fetches the queue by itself).
+        mock.fail('^GET /me/following', { status: 401, message: 'The access token expired' })
         mock.fail('^GET /me/albums', { hang: true })                             // a request that never answers
         // When the app refreshes after that 401, pretend another copy of the app
         // rotated the refresh token first: Spotify rejects ours, storage has a newer one.
