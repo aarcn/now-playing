@@ -15,7 +15,8 @@ export const SCOPES = [
 ]
 
 export class NotLoggedIn extends Error {
-  constructor() { super('Not signed in') }
+  /** 'missing' = never signed in here; 'revoked' = Spotify rejected a saved sign-in. */
+  constructor(public reason: 'missing' | 'revoked' = 'missing') { super('Not signed in') }
 }
 
 /** The page URL without query or a trailing index.html, so /app/ and /app/index.html match. */
@@ -132,7 +133,7 @@ async function refreshAccessToken(): Promise<void> {
       return requestToken({ grant_type: 'refresh_token', refresh_token: latest, client_id: clientId })
     }
     await store.remove('refresh_token')
-    throw new NotLoggedIn()
+    throw new NotLoggedIn('revoked')
   }
 }
 

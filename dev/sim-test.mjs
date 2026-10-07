@@ -5,7 +5,8 @@
 //   evenhub-simulator "http://127.0.0.1:5173/dev/mock.html?scenario=default" --automation-port 9898
 //   node dev/sim-test.mjs default
 //
-// Scenarios: default (UI flows), faults (error handling), logged-out.
+// Scenarios: default (UI flows), faults (error handling), logged-out,
+// settings (every setting switched on), settings-ui (clicks through the phone settings page).
 
 import { writeFileSync, mkdirSync } from 'node:fs'
 
@@ -414,6 +415,124 @@ async function hangScenarioSteps() {
   })
 }
 
+async function settingsScenario() {
+  const lines = m => since(m).map(e => e.message)
+
+  await step('cover layout: waits for the cover, then shows it beside the song', async () => {
+    assert(await waitFor(() => log.some(e => e.message === '[np] art shown https://i.scdn.co/image/opera-300'), 8000), 'cover never shown')
+    const layouts = log.filter(e => e.message.startsWith('[np] layout ')).map(e => e.message.slice(12))
+    assert(layouts[0] === 'single' && layouts[1] === 'art', `expected text first, then the cover once downloaded: ${layouts}`)
+    if (layouts.at(-1) === 'art') await shot('01-cover')
+  })
+
+  await step('next-song preview, time left and clock are on screen', async () => {
+    // Read from history: glance mode may already have hidden the screen.
+    const t = await waitFor(() => nows(0).find(n => n.includes('Next: Redbone')))
+    assert(t, `now: ${JSON.stringify(lastNow())}`)
+    assert(/  -\d+:\d\d/.test(t), 'time left (-m:ss) missing')
+    assert(/\d{1,2}:\d{2}(\s?[AP]M)?  \u00B7/.test(t), `clock missing: ${JSON.stringify(t)}`)
+  })
+
+  await step('glance mode hides the screen after 5 quiet seconds', async () => {
+    assert(await waitFor(() => log.some(e => e.message === '[np] hide'), 9000), 'never hid')
+    assert(lastNow() === '', `screen should be blank, got ${JSON.stringify(lastNow())}`)
+    await shot('02-hidden')
+  })
+
+  await step('a tap while hidden only brings the screen back', async () => {
+    const m = mark()
+    await input('click')
+    assert(await waitFor(() => lines(m).includes('[np] wake')), 'no wake')
+    await sleep(1500); await poll()
+    const commands = api(m).filter(c => !c.startsWith('GET ') && c !== 'POST /api/token')
+    assert(!commands.length, `tap while hidden should not control playback: ${commands}`)
+    assert(lastNow().includes('Bohemian'), 'song visible again')
+  })
+
+  await step('right-arm tap is mapped to "next song"', async () => {
+    const m = mark()
+    await input('click')
+    assert(await waitFor(() => api(m).includes('POST /me/player/next')), `calls: ${api(m)}`)
+    assert(lines(m).some(l => /^\[np\] tap .* next$/.test(l)), 'tap action log')
+    assert(await waitFor(() => log.some(e => e.message === '[np] art shown https://i.scdn.co/image/awaken-300'), 8000), 'new cover not sent')
+  })
+
+  await step('swipe up is "next" when set that way', async () => {
+    const m = mark()
+    await input('up')
+    assert(await waitFor(() => api(m).includes('POST /me/player/next')), `calls: ${api(m)}`)
+    assert(await waitFor(() => lastNow().includes("Don't Stop")), `now: ${lastNow()}`)
+  })
+
+  await step('"always go back" skips the restart even mid-song', async () => {
+    await sleep(6000)
+    const m = mark()
+    await input('down')
+    assert(await waitFor(() => api(m).includes('POST /me/player/previous')), `calls: ${api(m)}`)
+    assert(!api(m).some(c => c.startsWith('PUT /me/player/seek')), 'should not restart')
+  })
+
+  await step('a song whose cover fails falls back to the text layout', async () => {
+    const m = mark()
+    await input('up'); await sleep(1800); await input('up')
+    assert(await waitFor(() => lastNow().includes('道 (Michi)'), 8000), `now: ${lastNow()}`)
+    assert(await waitFor(() => lines(m).some(l => l.startsWith('[np] art load failed')), 6000), 'no failure logged')
+    assert(await waitFor(() => log.filter(e => e.message.startsWith('[np] layout ')).at(-1)?.message === '[np] layout single', 6000), 'still in cover layout')
+    await shot('03-cover-failed')
+  })
+}
+
+async function settingsUiScenario() {
+  const ui = prefix => waitFor(() => log.find(e => e.message.startsWith(`[ui] ${prefix}`))?.message, 15000)
+
+  await step('settings tab opens', async () => {
+    assert((await ui('settings tab visible')) === '[ui] settings tab visible true', 'tab state')
+  })
+
+  await step('album cover toggle saves and switches the glasses layout', async () => {
+    assert((await ui('albumArt saved')) === '[ui] albumArt saved true', 'not saved')
+    assert(await waitFor(() => log.some(e => e.message === '[np] layout art'), 8000), 'glasses did not switch')
+    await shot('01-cover-on')
+  })
+
+  await step('next-song swipe buttons save and show as selected', async () => {
+    assert((await ui('nextSwipe saved')) === '[ui] nextSwipe saved up true', await ui('nextSwipe saved'))
+  })
+
+  await step('left-arm tap select saves and updates the gesture guide', async () => {
+    assert((await ui('tapLeft saved')) === '[ui] tapLeft saved like', 'not saved')
+    const g = await ui('guide')
+    assert(g.includes('Tap left armLike / unlike') && g.includes('Tap right armPlay / pause') && g.includes('Swipe upNext song'), g)
+  })
+
+  await step('glance mode setting saves', async () => {
+    assert((await ui('glance saved')) === '[ui] glance saved 10', 'not saved')
+  })
+
+  await step('Teach: the next swipe on the glasses becomes "next song"', async () => {
+    assert(await ui('teach waiting'), 'teach never started')
+    assert(await waitFor(() => lastNow().includes('Swipe the way you want'), 5000), `glasses prompt missing: ${lastNow()}`)
+    const m = mark()
+    await input('down')
+    assert(await waitFor(() => log.some(e => e.message === '[np] learned down')), 'not learned')
+    const result = await ui('teach result')
+    assert(result.includes('Got it: swipe down') && result.endsWith('down'), result)
+    assert(!api(m).includes('POST /me/player/next'), 'the teaching swipe should not also skip')
+  })
+
+  await step('reset restores defaults and the text layout', async () => {
+    const r = await ui('reset')
+    const saved = JSON.parse(r.slice('[ui] reset '.length))
+    assert(saved.albumArt === false && saved.nextSwipe === 'down' && saved.tapLeft === 'playpause' && saved.glanceSeconds === 0, r)
+    assert(await waitFor(() => log.filter(e => e.message.startsWith('[np] layout ')).at(-1)?.message === '[np] layout single', 6000), 'layout not reset')
+  })
+
+  await step('settings page screenshot', async () => {
+    const res = await fetch(`${BASE}/api/screenshot/webview`)
+    writeFileSync(`${SHOTS}/${scenario}-phone.png`, Buffer.from(await res.arrayBuffer()))
+  })
+}
+
 async function loggedOutScenario() {
   await step('a revoked sign-in tells the user to reconnect on the phone', async () => {
     assert(await waitFor(() => lastNow().startsWith('Not signed in')), `now: ${lastNow()}`)
@@ -431,7 +550,7 @@ async function loggedOutScenario() {
 // ---------------------------------------------------------------------------
 console.log(`scenario: ${scenario}`)
 await waitFor(() => log.some(e => e.message.startsWith('[np] now ')), 15000)
-await ({ default: defaultScenario, faults: faultsScenario, 'logged-out': loggedOutScenario })[scenario]()
+await ({ default: defaultScenario, faults: faultsScenario, 'logged-out': loggedOutScenario, settings: settingsScenario, 'settings-ui': settingsUiScenario })[scenario]()
 await poll()
 const errors = log.filter(e => e.level === 'error' || e.message.startsWith('[uncaught]') || e.message.startsWith('[unhandledrejection]'))
 if (errors.length) { failed++; console.log('  FAIL uncaught errors:\n       ' + errors.map(e => e.message).join('\n       ')) }

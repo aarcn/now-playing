@@ -7,13 +7,13 @@ let tail: Promise<unknown> = Promise.resolve()
 
 const BRIDGE_TIMEOUT_MS = 6000
 
-export function serial<T>(fn: (b: EvenAppBridge) => Promise<T>): Promise<T> {
-  const run = tail.then(() => Promise.race([
-    fn(bridge!),
+export function serial<T>(fn: (b: EvenAppBridge) => Promise<T>, timeoutMs = BRIDGE_TIMEOUT_MS): Promise<T> {
+  const run = tail.then(() => new Promise<T>((resolve, reject) => {
     // If the glasses drop mid-call the promise may never settle; don't let
     // one stuck call block every later render and storage call.
-    new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Glasses not responding')), BRIDGE_TIMEOUT_MS)),
-  ]))
+    const timer = setTimeout(() => reject(new Error('Glasses not responding')), timeoutMs)
+    fn(bridge!).then(resolve, reject).finally(() => clearTimeout(timer))
+  }))
   tail = run.catch(() => {})
   return run
 }

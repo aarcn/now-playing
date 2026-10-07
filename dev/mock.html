@@ -33,6 +33,17 @@
       if (scenario === 'logged-out') {
         await bridge.setLocalStorage('refresh_token', 'revoked')
       }
+      if (scenario === 'settings') {
+        await bridge.setLocalStorage('prefs_v1', JSON.stringify({
+          albumArt: true, showNext: true, showClock: true, timeLeft: true,
+          nextSwipe: 'up', backRestartsFirst: false, tapRight: 'next', glanceSeconds: 5,
+        }))
+      }
+      if (scenario === 'settings-ui') {
+        await bridge.setLocalStorage('prefs_v1', '{}')
+        // Click through the real phone settings page once the app is up.
+        setTimeout(() => import('./settings-ui-steps.ts').then(m => m.run(bridge)), 4000)
+      }
 
       // Load the real app (index.html's script) after the mock is in place.
       const html = await (await fetch('/index.html')).text()

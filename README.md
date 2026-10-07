@@ -28,6 +28,22 @@ The now-playing screen shows the song, artist and album, the playlist or album i
 - **Album / Artist / Show** of what's playing
 - **Exit**
 
+## Settings (phone app → Settings)
+
+| Setting | Options |
+|---|---|
+| Next song | Swipe up or swipe down (the other swipe goes back). **Teach**: tap it, then swipe on the glasses the way you want. |
+| Swiping back | Restarts the song first, or always goes to the previous song |
+| Tap on the left arm / right arm | Play/pause, next, previous, like/unlike, or open the menu, set separately per arm |
+| Album cover | Shows the cover beside the song |
+| Next song preview | A "Next:" line with what plays after this |
+| Clock | Time of day in the status line |
+| Right side of the progress bar | Song length or time left |
+| Glance mode | Off, or hide the screen after 5/10/30 s; it comes back on song changes or a touch (a tap while hidden only wakes it) |
+| Update speed | Fast, normal, or battery saver |
+
+Swipes don't report which arm they came from (the SDK only says up or down), but taps do, which is why taps can be set per arm. The R1 ring's tap always plays/pauses.
+
 ## Setup (each user)
 
 Spotify only lets a Development Mode app have 5 users, so each user connects their own free Spotify developer app:
@@ -46,6 +62,7 @@ Sign-in uses PKCE, so no client secret is ever entered or stored.
 - **Liked Songs** can't be played as one big context through the API, so Play starts the newest 50 and Shuffle plays a random 50-song stretch of your library.
 - **Search** isn't included: the glasses have no keyboard and voice input would need a paid speech-to-text service.
 - **Volume** is unavailable on devices that block remote volume (iPhones, mostly).
+- **Album covers** load from Spotify's image servers. If a cover can't be downloaded, that song uses the text layout; after three failures in a row the app stops trying until the setting is switched off and on.
 
 ## Develop
 
@@ -69,13 +86,15 @@ npx evenhub-simulator "http://127.0.0.1:5173/dev/mock.html?scenario=default" --a
 npm run test:e2e -- default                  # drives the simulator and checks every flow
 ```
 
-Scenarios: `default` (every screen and control), `faults` (no active device, rate limiting, dropped connection, 502s, a request that never answers, an expired token racing a rotated refresh token), `logged-out`. Restart the simulator with the matching `?scenario=` before each run.
+Scenarios: `default` (every screen and control), `faults` (no active device, rate limiting, dropped connection, 502s, a request that never answers, an expired token racing a rotated refresh token), `logged-out`, `settings` (every setting switched on, including covers and glance mode), `settings-ui` (clicks through the phone's Settings tab, including Teach, and checks the glasses react). Restart the simulator with the matching `?scenario=` before each run.
 
 ## Layout
 
 - `src/glasses.ts`: glasses screens, menus and gestures
 - `src/spotify.ts`: Spotify Web API client (player, library, errors, rate limits, timeouts)
 - `src/auth.ts`: PKCE sign-in, token refresh, sign-in keys
-- `src/settings.ts`: phone screen
+- `src/settings.ts`: phone screen (Home and Settings tabs)
+- `src/prefs.ts`: settings, saved on the phone
+- `src/art.ts`: album covers, contrast-stretched and dithered for the 16-shade display
 - `src/text.ts`: makes text safe for the glasses font
 - `src/bridge.ts`: Even bridge connection, call queue, storage

@@ -3,19 +3,18 @@ import {
   exportSignInKey, importSignInKey, isLoggedIn, logout, missingScopes,
   redirectProblem, redirectUri, startLogin,
 } from './auth'
-import { prefs, refreshNow } from './glasses'
+import { learnNextSwipe, refreshNow } from './glasses'
+import { DEFAULTS, TAP_ACTION_NAMES, onPrefsChange, prefs, savePrefs, type Prefs } from './prefs'
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T
-
-export async function loadPrefs(): Promise<void> {
-  prefs.swipeDownIsNext = (await store.get('swipe_next')) !== 'up'
-}
 
 function setError(message: string | null) {
   $('error').textContent = message ?? ''
 }
 
-export async function renderSettings(error: string | null = null): Promise<void> {
+// ---------- Home tab: connection ----------
+
+export async function renderAccount(error: string | null = null): Promise<void> {
   const loggedIn = await isLoggedIn()
   const inEvenApp = hasBridge()
   const missing = loggedIn ? await missingScopes() : []
@@ -27,16 +26,16 @@ export async function renderSettings(error: string | null = null): Promise<void>
   $('setup').hidden = loggedIn
   $('connected').hidden = !loggedIn
   $('reconnect').hidden = missing.length === 0
-  $('key-import').hidden = !inEvenApp || loggedIn // paste a key into the Even app
-  $('key-export').hidden = !loggedIn || inEvenApp // copy a key out of a normal browser
+  $('key-import').hidden = !inEvenApp || loggedIn   // paste a key into the Even app
+  $('key-export').hidden = !loggedIn || inEvenApp   // copy a key out of a normal browser
 
   $('redirect').textContent = redirectUri()
   $<HTMLInputElement>('client-id').value = (await store.get('client_id')) ?? ''
   $<HTMLButtonElement>('connect').disabled = !!redirectProblem()
-  $<HTMLSelectElement>('swipe').value = prefs.swipeDownIsNext ? 'down' : 'up'
 }
 
 async function copy(text: string, button: HTMLElement, fallbackTarget?: HTMLElement) {
+  const original = button.textContent
   try {
     await navigator.clipboard.writeText(text)
     button.textContent = 'Copied'
@@ -45,12 +44,15 @@ async function copy(text: string, button: HTMLElement, fallbackTarget?: HTMLElem
     if (fallbackTarget) getSelection()?.selectAllChildren(fallbackTarget)
     button.textContent = 'Select and copy'
   }
-  setTimeout(() => (button.textContent = 'Copy'), 2000)
+  setTimeout(() => (button.textContent = original), 2000)
 }
 
-export function bindSettings(): void {
-  // The glasses side noticed the sign-in stopped working (revoked, expired).
-  window.addEventListener('np:signed-out', () => { void renderSettings('Your Spotify sign-in expired. Connect again.') })
+function bindAccount() {
+  // The glasses side noticed the sign-in stopped working.
+  window.addEventListener('np:signed-out', e => {
+    const revoked = (e as CustomEvent).detail?.reason === 'revoked'
+    void renderAccount(revoked ? 'Spotify ended your sign-in. Connect again.' : null)
+  })
 
   $('copy').onclick = () => copy(redirectUri(), $('copy'), $('redirect'))
 
@@ -71,7 +73,7 @@ export function bindSettings(): void {
   $('logout').onclick = async () => {
     await logout()
     refreshNow()
-    await renderSettings()
+    await renderAccount()
   }
 
   $('use-key').onclick = async () => {
@@ -82,7 +84,7 @@ export function bindSettings(): void {
     }
     $<HTMLTextAreaElement>('key-input').value = ''
     refreshNow()
-    await renderSettings()
+    await renderAccount()
   }
 
   $('copy-key').onclick = async () => {
@@ -92,19 +94,110 @@ export function bindSettings(): void {
     $('key-text').hidden = false
     await copy(key, $('copy-key'), $('key-text'))
   }
-
-  $<HTMLSelectElement>('swipe').onchange = async e => {
-    const value = (e.target as HTMLSelectElement).value
-    prefs.swipeDownIsNext = value !== 'up'
-    await store.set('swipe_next', value)
-    renderControls()
-  }
-  renderControls()
 }
 
-function renderControls() {
-  const next = prefs.swipeDownIsNext ? 'Swipe down' : 'Swipe up'
-  const prev = prefs.swipeDownIsNext ? 'Swipe up' : 'Swipe down'
-  $('ctl-next').textContent = next
-  $('ctl-prev').textContent = prev
+// ---------- Home tab: gesture guide ----------
+
+function renderGuide() {
+  const next = prefs.nextSwipe === 'down' ? 'Swipe down' : 'Swipe up'
+  const back = prefs.nextSwipe === 'down' ? 'Swipe up' : 'Swipe down'
+  const rows: [string, string][] = []
+  if (prefs.tapLeft === prefs.tapRight) {
+    rows.push(['Tap', TAP_ACTION_NAMES[prefs.tapLeft]])
+  } else {
+    rows.push(['Tap left arm', TAP_ACTION_NAMES[prefs.tapLeft]], ['Tap right arm', TAP_ACTION_NAMES[prefs.tapRight]])
+  }
+  rows.push(
+    [next, 'Next song'],
+    [back, prefs.backRestartsFirst ? 'Restart, or previous if near the start' : 'Previous song'],
+    ['Double-tap', 'Menu: library, queue, like, shuffle, repeat, volume, seek, devices. Double-tap again to go back.'],
+  )
+  if (prefs.glanceSeconds) rows.push(['Screen hidden?', 'Tap to bring it back'])
+
+  $('guide').replaceChildren(...rows.map(([gesture, action]) => {
+    const tr = document.createElement('tr')
+    for (const text of [gesture, action]) {
+      const td = document.createElement('td')
+      td.textContent = text
+      tr.append(td)
+    }
+    return tr
+  }))
+}
+
+// ---------- Settings tab ----------
+
+/** Turns a control's string value back into the pref's type. */
+function coerce<K extends keyof Prefs>(key: K, raw: string): Prefs[K] {
+  const kind = typeof DEFAULTS[key]
+  return (kind === 'boolean' ? raw === 'true' : kind === 'number' ? Number(raw) : raw) as Prefs[K]
+}
+
+function renderPrefs() {
+  document.querySelectorAll<HTMLElement>('[data-pref]').forEach(el => {
+    const key = el.dataset.pref as keyof Prefs
+    const value = String(prefs[key])
+    if (el instanceof HTMLInputElement && el.type === 'checkbox') el.checked = prefs[key] === true
+    else if (el instanceof HTMLSelectElement) el.value = value
+    else el.querySelectorAll<HTMLButtonElement>('button[data-value]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.value === value)))
+  })
+  renderGuide()
+}
+
+function bindPrefs() {
+  document.querySelectorAll<HTMLElement>('[data-pref]').forEach(el => {
+    const key = el.dataset.pref as keyof Prefs
+    if (el instanceof HTMLInputElement && el.type === 'checkbox') {
+      el.onchange = () => void savePrefs({ [key]: el.checked })
+    } else if (el instanceof HTMLSelectElement) {
+      el.onchange = () => void savePrefs({ [key]: coerce(key, el.value) })
+    } else {
+      el.querySelectorAll<HTMLButtonElement>('button[data-value]').forEach(b => {
+        b.onclick = () => void savePrefs({ [key]: coerce(key, b.dataset.value!) })
+      })
+    }
+  })
+  onPrefsChange(renderPrefs)
+
+  $('reset-prefs').onclick = () => void savePrefs({ ...DEFAULTS })
+
+  $('teach').onclick = async () => {
+    const button = $<HTMLButtonElement>('teach')
+    button.disabled = true
+    button.textContent = 'Swipe now...'
+    const dir = await learnNextSwipe()
+    button.disabled = false
+    button.textContent = 'Teach'
+    $('teach-hint').textContent = dir
+      ? `Got it: swipe ${dir} now skips to the next song.`
+      : 'No swipe came through. Make sure the glasses show the now-playing screen and try again.'
+  }
+
+  window.addEventListener('np:art-failed', () => { $('art-note').hidden = false })
+
+  const inEvenApp = hasBridge()
+  $('settings-browser-note').hidden = inEvenApp
+  $<HTMLButtonElement>('teach').disabled = !inEvenApp
+}
+
+// ---------- Tabs ----------
+
+function bindTabs() {
+  const show = (tab: string) => {
+    document.querySelectorAll<HTMLElement>('[data-tab]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === tab)))
+    $('tab-home').hidden = tab !== 'home'
+    $('tab-settings').hidden = tab !== 'settings'
+    try { sessionStorage.setItem('np_tab', tab) } catch { /* storage blocked */ }
+  }
+  document.querySelectorAll<HTMLElement>('[data-tab]').forEach(b => { b.onclick = () => show(b.dataset.tab!) })
+  let initial = 'home'
+  try { initial = sessionStorage.getItem('np_tab') ?? 'home' } catch { /* storage blocked */ }
+  show(initial)
+}
+
+export function bindSettings(): void {
+  bindTabs()
+  bindAccount()
+  bindPrefs()
+  renderPrefs()
 }

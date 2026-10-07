@@ -31,6 +31,7 @@ function friendly(status: number, reason: string, message: string): string {
   if (status === 403 && /scope/i.test(message)) return 'Reconnect Spotify on your phone for this'
   if (status === 403 && /restriction/i.test(message)) return 'Spotify doesn\'t allow that right now'
   if (status === 403) return 'Spotify refused that'
+  if (status === 404 && /device/i.test(message)) return 'That device isn\'t available anymore'
   if (status === 404) return 'Not found on Spotify'
   if (status === 429) return 'Spotify is busy, slowing down'
   if (status >= 500) return 'Spotify is having trouble'
@@ -111,6 +112,14 @@ export interface PlayerState {
   shuffle: boolean
   repeat: Repeat
   device: Device | null
+  artUrl: string             // '' when there's no cover
+}
+
+/** Picks the smallest cover that's still at least `min` px, from Spotify's [640, 300, 64] list. */
+function pickImage(images: { url: string; width?: number | null }[] | undefined, min = 144): string {
+  if (!images?.length) return ''
+  const sorted = [...images].sort((a, b) => (a.width ?? 0) - (b.width ?? 0))
+  return (sorted.find(i => (i.width ?? 0) >= min) ?? sorted[sorted.length - 1]).url
 }
 
 export interface Device {
@@ -149,7 +158,7 @@ export async function getPlayer(): Promise<PlayerState | null> {
   if (!item) {
     const kind = p.currently_playing_type === 'ad' ? 'ad' : 'unknown'
     if (kind === 'unknown' && !p.device) return null
-    return { ...base, kind, uri: '', title: kind === 'ad' ? 'Advertisement' : '', artist: null, artists: '', album: null, durationMs: 0 }
+    return { ...base, kind, uri: '', title: kind === 'ad' ? 'Advertisement' : '', artist: null, artists: '', album: null, durationMs: 0, artUrl: '' }
   }
 
   if (item.type === 'episode') {
@@ -162,6 +171,7 @@ export async function getPlayer(): Promise<PlayerState | null> {
       artists: item.show?.name ?? '',
       album: null,
       durationMs: item.duration_ms ?? 0,
+      artUrl: pickImage(item.images ?? item.show?.images),
     }
   }
 
@@ -174,6 +184,7 @@ export async function getPlayer(): Promise<PlayerState | null> {
     artists: (item.artists ?? []).map((a: any) => a.name).join(', '),
     album: item.album ? { name: item.album.name, uri: item.album.uri } : null,
     durationMs: item.duration_ms ?? 0,
+    artUrl: pickImage(item.album?.images),
   }
 }
 
@@ -432,11 +443,17 @@ export async function getRecentContexts(max: number): Promise<ContextRef[]> {
     seen.set(context.uri, { type, track: track?.name ?? '' })
     if (seen.size === max) break
   }
-  return Promise.all([...seen].map(async ([uri, { type, track }]) => {
-    const name = await getContextName(uri)
-    // No name (e.g. a Spotify-made mix): describe it by a song you heard from it.
-    return { uri, type, name: name || `${type === 'playlist' ? 'Mix' : type} with "${track}"` }
-  }))
+  // Look names up a few at a time; firing them all at once trips Spotify's rate limit.
+  const refs: ContextRef[] = []
+  const entries = [...seen]
+  for (let i = 0; i < entries.length; i += 3) {
+    refs.push(...await Promise.all(entries.slice(i, i + 3).map(async ([uri, { type, track }]) => {
+      const name = await getContextName(uri)
+      // No name (e.g. a Spotify-made mix): describe it by a song you heard from it.
+      return { uri, type, name: name || `${type === 'playlist' ? 'Mix' : type} with "${track}"` }
+    })))
+  }
+  return refs
 }
 
 export const idOf = (uri: string) => uri.split(':')[2] ?? ''

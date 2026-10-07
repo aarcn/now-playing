@@ -5,15 +5,16 @@
 type Json = Record<string, any>
 
 const artist = (id: string, name: string) => ({ id, name, uri: `spotify:artist:${id}`, type: 'artist' })
+const covers = (id: string) => [640, 300, 64].map(w => ({ url: `https://i.scdn.co/image/${id}-${w}`, width: w, height: w }))
 const album = (id: string, name: string, a: Json, year = '2020', total = 10) =>
-  ({ id, name, uri: `spotify:album:${id}`, artists: [a], release_date: `${year}-01-01`, total_tracks: total, type: 'album' })
+  ({ id, name, uri: `spotify:album:${id}`, artists: [a], release_date: `${year}-01-01`, total_tracks: total, type: 'album', images: covers(id) })
 
 const queen = artist('queen', 'Queen')
 const gambino = artist('gambino', 'Childish Gambino')
 const utada = artist('utada', 'Utada Hikaru')
 const opera = album('opera', 'A Night at the Opera', queen, '1975', 12)
 const awaken = album('awaken', '"Awaken, My Love!"', gambino, '2016', 11)
-const fantome = album('fantome', 'Fantôme', utada, '2016', 11)
+const fantome = { ...album('fantome', 'Fantôme', utada, '2016', 11), images: covers('missing') }
 
 let n = 0
 const track = (name: string, a: Json, al: Json, ms = 210_000, extra: Json = {}) => {
@@ -48,7 +49,7 @@ for (let i = 1; i <= 20; i++) playlists.push(playlist(`p${i}`, `Playlist ${i}`, 
 const albums = [opera, awaken, fantome]
 const albumTracks: Record<string, Json[]> = { opera: T.filter(t => t.album === opera), awaken: T.filter(t => t.album === awaken), fantome: T.filter(t => t.album === fantome) }
 const artists = [queen, gambino, utada, ...Array.from({ length: 22 }, (_, i) => artist(`a${i}`, `Artist ${i + 1}`))]
-const shows = [{ id: 'pod1', name: 'The Daily Thing', uri: 'spotify:show:pod1', type: 'show' }]
+const shows = [{ id: 'pod1', name: 'The Daily Thing', uri: 'spotify:show:pod1', type: 'show', images: covers('pod1') }]
 const episodes = Array.from({ length: 5 }, (_, i) => ({
   id: `e${i}`, name: `Episode ${5 - i}: Something Happened`, uri: `spotify:episode:e${i}`, type: 'episode',
   duration_ms: 1_800_000, release_date: `2026-10-0${5 - i}`, show: shows[0],
@@ -225,12 +226,43 @@ async function route(method: string, url: URL, body: Json | null): Promise<Respo
   return err(404, `mock: no route for ${method} ${p}`)
 }
 
+// ---------- covers ----------
+/** A generated stand-in cover: a gradient with the album's initial. */
+async function coverImage(url: URL): Promise<Response> {
+  console.log('[api] GET cover', url.pathname)
+  await new Promise(r => setTimeout(r, 120))
+  const [, , name] = url.pathname.split('/')
+  if (name.startsWith('missing')) return new Response('not found', { status: 404 })
+  const size = Number(name.split('-').pop()) || 300
+  const canvas = document.createElement('canvas')
+  canvas.width = canvas.height = size
+  const ctx = canvas.getContext('2d')!
+  const g = ctx.createLinearGradient(0, 0, size, size)
+  g.addColorStop(0, '#202020')
+  g.addColorStop(1, name.startsWith('opera') ? '#f0c040' : '#40a0f0')
+  ctx.fillStyle = g
+  ctx.fillRect(0, 0, size, size)
+  ctx.beginPath()
+  ctx.arc(size * 0.5, size * 0.5, size * 0.3, 0, Math.PI * 2)
+  ctx.strokeStyle = '#ffffff'
+  ctx.lineWidth = size * 0.04
+  ctx.stroke()
+  ctx.fillStyle = '#ffffff'
+  ctx.font = `bold ${Math.round(size * 0.35)}px sans-serif`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(name[0].toUpperCase(), size / 2, size / 2)
+  const blob: Blob = await new Promise(r => canvas.toBlob(b => r(b!), 'image/png'))
+  return new Response(blob, { status: 200, headers: { 'Content-Type': 'image/png' } })
+}
+
 // ---------- install ----------
 let tokenN = 0
 
 const realFetch = window.fetch.bind(window)
 window.fetch = async (input: RequestInfo | URL, init: RequestInit = {}) => {
   const url = new URL(String(input instanceof Request ? input.url : input), location.href)
+  if (url.hostname === 'i.scdn.co') return coverImage(url)
   if (!/spotify\.com$/.test(url.hostname)) return realFetch(input, init)
   const method = (init.method ?? 'GET').toUpperCase()
   const label = `${method} ${url.pathname.replace('/v1', '')}${url.search}`
