@@ -29,6 +29,10 @@ export async function renderAccount(error: string | null = null): Promise<void> 
   $('key-import').hidden = !inEvenApp || loggedIn   // paste a key into the Even app
   $('key-export').hidden = !loggedIn || inEvenApp   // copy a key out of a normal browser
 
+  // Settings stay readable when signed out, but can't be changed.
+  $('settings-locked').hidden = loggedIn
+  $<HTMLFieldSetElement>('settings-fields').disabled = !loggedIn
+
   $('redirect').textContent = redirectUri()
   $<HTMLInputElement>('client-id').value = (await store.get('client_id')) ?? ''
   $<HTMLButtonElement>('connect').disabled = !!redirectProblem()

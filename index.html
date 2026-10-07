@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no" />
-    <title>Now Playing</title>
+    <title>now playing</title>
     <style>
       :root {
         color-scheme: dark;
@@ -103,11 +103,17 @@
       .switch input:checked + span { background: var(--accent); }
       .switch input:checked + span::after { transform: translateX(18px); background: var(--accent-ink); }
       .switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+      /* Settings are locked (but still readable) until Spotify is connected */
+      fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+      fieldset:disabled { opacity: 0.5; }
+      fieldset:disabled button, fieldset:disabled select { opacity: 1; }
+      fieldset:disabled .switch input { cursor: default; }
     </style>
   </head>
   <body>
     <main>
-      <h1>Now Playing</h1>
+      <h1>now playing</h1>
       <p id="status">Checking...</p>
 
       <nav class="tabs" role="tablist">
@@ -168,97 +174,103 @@
 
       <!-- ================= Settings ================= -->
       <div id="tab-settings" hidden>
+        <section id="settings-locked" class="notice" hidden>
+          <p>Connect Spotify on the Home tab first. Settings can't be changed until you're connected.</p>
+        </section>
+
         <p id="settings-browser-note" class="hint" hidden>You're in a regular browser. Change settings in the Even app so they apply to your glasses.</p>
 
-        <section>
-          <h2>Gestures</h2>
-          <div class="setting stack">
-            <div class="label"><b>Next song</b><span class="hint">The other swipe goes back.</span></div>
-            <div class="seg" data-pref="nextSwipe">
-              <button data-value="up">Swipe up</button>
-              <button data-value="down">Swipe down</button>
+        <fieldset id="settings-fields" disabled>
+          <section>
+            <h2>Gestures</h2>
+            <div class="setting stack">
+              <div class="label"><b>Next song</b><span class="hint">The other swipe goes back.</span></div>
+              <div class="seg" data-pref="nextSwipe">
+                <button data-value="up">Swipe up</button>
+                <button data-value="down">Swipe down</button>
+              </div>
             </div>
-          </div>
-          <div class="setting">
-            <div class="label"><b>Not sure which is which?</b><span class="hint" id="teach-hint">Tap Teach, then swipe on your glasses the way you want "next song" to go.</span></div>
-            <button id="teach" class="secondary">Teach</button>
-          </div>
-          <div class="setting stack">
-            <div class="label"><b>Swiping back</b></div>
-            <div class="seg" data-pref="backRestartsFirst">
-              <button data-value="true">Restarts song first</button>
-              <button data-value="false">Always goes back</button>
+            <div class="setting">
+              <div class="label"><b>Not sure which is which?</b><span class="hint" id="teach-hint">Tap Teach, then swipe on your glasses the way you want "next song" to go.</span></div>
+              <button id="teach" class="secondary">Teach</button>
             </div>
-          </div>
-          <div class="setting">
-            <div class="label"><b>Tap on the left arm</b></div>
-            <select data-pref="tapLeft" aria-label="Tap on the left arm">
-              <option value="playpause">Play / pause</option>
-              <option value="next">Next song</option>
-              <option value="previous">Previous song</option>
-              <option value="like">Like / unlike</option>
-              <option value="menu">Open the menu</option>
-            </select>
-          </div>
-          <div class="setting">
-            <div class="label"><b>Tap on the right arm</b></div>
-            <select data-pref="tapRight" aria-label="Tap on the right arm">
-              <option value="playpause">Play / pause</option>
-              <option value="next">Next song</option>
-              <option value="previous">Previous song</option>
-              <option value="like">Like / unlike</option>
-              <option value="menu">Open the menu</option>
-            </select>
-          </div>
-          <p class="hint">Swipes can't tell which arm you used, but taps can. A tap on the R1 ring always plays or pauses, and play/pause is also in the menu.</p>
-        </section>
+            <div class="setting stack">
+              <div class="label"><b>Swiping back</b></div>
+              <div class="seg" data-pref="backRestartsFirst">
+                <button data-value="true">Restarts song first</button>
+                <button data-value="false">Always goes back</button>
+              </div>
+            </div>
+            <div class="setting">
+              <div class="label"><b>Tap on the left arm</b></div>
+              <select data-pref="tapLeft" aria-label="Tap on the left arm">
+                <option value="playpause">Play / pause</option>
+                <option value="next">Next song</option>
+                <option value="previous">Previous song</option>
+                <option value="like">Like / unlike</option>
+                <option value="menu">Open the menu</option>
+              </select>
+            </div>
+            <div class="setting">
+              <div class="label"><b>Tap on the right arm</b></div>
+              <select data-pref="tapRight" aria-label="Tap on the right arm">
+                <option value="playpause">Play / pause</option>
+                <option value="next">Next song</option>
+                <option value="previous">Previous song</option>
+                <option value="like">Like / unlike</option>
+                <option value="menu">Open the menu</option>
+              </select>
+            </div>
+            <p class="hint">Swipes can't tell which arm you used, but taps can. A tap on the R1 ring always plays or pauses, and play/pause is also in the menu.</p>
+          </section>
 
-        <section>
-          <h2>Screen</h2>
-          <div class="setting">
-            <div class="label"><b>Album cover</b><span class="hint">Shows the cover next to the song. It takes a second or two to appear after each song change.</span></div>
-            <label class="switch"><input type="checkbox" data-pref="albumArt" aria-label="Album cover" /><span></span></label>
-          </div>
-          <p id="art-note" class="hint warn" hidden>Some covers couldn't be downloaded, so those songs use the text-only screen.</p>
-          <div class="setting">
-            <div class="label"><b>Lyrics</b><span class="hint">Lines that follow along with the song, from LRCLIB, a free community lyrics database. Not every song has them. Also in the glasses menu.</span></div>
-            <label class="switch"><input type="checkbox" data-pref="lyrics" aria-label="Lyrics" /><span></span></label>
-          </div>
-          <div class="setting">
-            <div class="label"><b>Clock</b><span class="hint">The time of day in the status line.</span></div>
-            <label class="switch"><input type="checkbox" data-pref="showClock" aria-label="Clock" /><span></span></label>
-          </div>
-          <div class="setting stack">
-            <div class="label"><b>Right side of the progress bar</b></div>
-            <div class="seg" data-pref="timeLeft">
-              <button data-value="false">Song length</button>
-              <button data-value="true">Time left</button>
+          <section>
+            <h2>Screen</h2>
+            <div class="setting">
+              <div class="label"><b>Album cover</b><span class="hint">Shows the cover next to the song. It takes a second or two to appear after each song change.</span></div>
+              <label class="switch"><input type="checkbox" data-pref="albumArt" aria-label="Album cover" /><span></span></label>
             </div>
-          </div>
-          <div class="setting stack">
-            <div class="label"><b>Glance mode</b><span class="hint">Hides the screen after a few seconds so it's out of your view. It comes back when the song changes or you touch the glasses.</span></div>
-            <div class="seg" data-pref="glanceSeconds">
-              <button data-value="0">Off</button>
-              <button data-value="5">5 s</button>
-              <button data-value="10">10 s</button>
-              <button data-value="30">30 s</button>
+            <p id="art-note" class="hint warn" hidden>Some covers couldn't be downloaded, so those songs use the text-only screen.</p>
+            <div class="setting">
+              <div class="label"><b>Lyrics</b><span class="hint">Lines that follow along with the song, from LRCLIB, a free community lyrics database. Not every song has them. Also in the glasses menu.</span></div>
+              <label class="switch"><input type="checkbox" data-pref="lyrics" aria-label="Lyrics" /><span></span></label>
             </div>
-          </div>
-        </section>
+            <div class="setting">
+              <div class="label"><b>Clock</b><span class="hint">The time of day in the status line.</span></div>
+              <label class="switch"><input type="checkbox" data-pref="showClock" aria-label="Clock" /><span></span></label>
+            </div>
+            <div class="setting stack">
+              <div class="label"><b>Right side of the progress bar</b></div>
+              <div class="seg" data-pref="timeLeft">
+                <button data-value="false">Song length</button>
+                <button data-value="true">Time left</button>
+              </div>
+            </div>
+            <div class="setting stack">
+              <div class="label"><b>Glance mode</b><span class="hint">Hides the screen after a few seconds so it's out of your view. It comes back when the song changes or you touch the glasses.</span></div>
+              <div class="seg" data-pref="glanceSeconds">
+                <button data-value="0">Off</button>
+                <button data-value="5">5 s</button>
+                <button data-value="10">10 s</button>
+                <button data-value="30">30 s</button>
+              </div>
+            </div>
+          </section>
 
-        <section>
-          <h2>Battery</h2>
-          <div class="setting stack">
-            <div class="label"><b>Update speed</b><span class="hint">How often the glasses check Spotify. Battery saver checks every 6 seconds while playing; your own taps and swipes still update right away.</span></div>
-            <div class="seg" data-pref="speed">
-              <button data-value="fast">Fast</button>
-              <button data-value="normal">Normal</button>
-              <button data-value="saver">Battery saver</button>
+          <section>
+            <h2>Battery</h2>
+            <div class="setting stack">
+              <div class="label"><b>Update speed</b><span class="hint">How often the glasses check Spotify. Battery saver checks every 6 seconds while playing; your own taps and swipes still update right away.</span></div>
+              <div class="seg" data-pref="speed">
+                <button data-value="fast">Fast</button>
+                <button data-value="normal">Normal</button>
+                <button data-value="saver">Battery saver</button>
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
 
-        <button id="reset-prefs" class="secondary">Reset settings</button>
+          <button id="reset-prefs" class="secondary">Reset settings</button>
+        </fieldset>
       </div>
     </main>
     <script type="module" src="/src/main.ts"></script>
